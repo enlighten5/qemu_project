@@ -1,0 +1,110 @@
+Build environment: clang-3.8
+
+the very first tr.flags should be 8b00
+qemu: fatal: invalid tss type
+EAX=0831c060 EBX=b7292228 ECX=00000001 EDX=00000002
+ESI=00000001 EDI=08050d50 EBP=bfcee238 ESP=bfcee1f0
+EIP=b722f060 EFL=00200202 [-------] CPL=3 II=0 A20=1 SMM=0 HLT=0
+ES =007b 00000000 ffffffff 00cff300 DPL=3 DS   [-WA]
+CS =0073 00000000 ffffffff 00c0fb00 DPL=3 CS32 [-RA]
+SS =007b 00000000 ffffffff 00c0f300 DPL=3 DS   [-WA]
+DS =007b 00000000 ffffffff 00cff300 DPL=3 DS   [-WA]
+FS =0000 00000000 00000000 00000000
+GS =0033 b6a54720 ffffffff 00dff300 DPL=3 DS   [-WA]
+LDT=0000 00000000 000fffff 00000000
+TR =0080 c1c05e40 0000206b 00008b00 DPL=0 TSS32-busy
+GDT=     c1c00000 000000ff
+IDT=     c135b000 000007ff
+CR0=8005003b CR2=0806e0f2 CR3=17e19000 CR4=000006d0
+DR0=0000000000000000 DR1=0000000000000000 DR2=0000000000000000 DR3=0000000000000000 
+DR6=00000000fffe0ff0 DR7=0000000000000400
+CCS=00000000 CCD=00000001 CCO=EFLAGS  
+EFER=0000000000000000
+FCW=037f FSW=0000 [ST=0] FTW=ff MXCSR=00001f80
+FPR0=00000000ff1d375a ffff FPR1=0000000000000000 ffff
+FPR2=0003000000000000 ffff FPR3=0000000000000000 ffff
+FPR4=00ff001d0038005b ffff FPR5=0000000000000000 0000
+FPR6=0000000000000000 0000 FPR7=9f80000000000000 4017
+XMM00=00000000000000000000000000000000 XMM01=ffffffffffffffffffffffffffffffff
+XMM02=00000000000000000000000000000000 XMM03=00000000000000000000000000000000
+XMM04=00020000000000000001000000000000 XMM05=01010101010101010101010101010101
+XMM06=00ff001d0039005e00ff001e003a005f XMM07=00000000000000000001000100010001
+Aborted (core dumped)
+
+run:
+make -j4 && sudo ./x86_64-softmmu/qemu-system-x86_64 -hda /media/zhenxiao/Downloads/ubuntu16.04.qcow2 -m 512M -enable-kvm -monitor stdio -machine kernel_irqchip=off
+
+modified discrepancies:
+1.kvmlock  -> done
+2.kvm-tpr-opt section //do not need 
+3.handle SMI
+4.conforming and readable bits -> done
+5.acessed bits -> done
+6.PIIX4 PM state includes gpe_cpu and size of gpe array
+7.apic timer it seems like qemu/kvm also support timer
+8.PIT disable -> done 
+9.clock source
+
+/hw/i386/pc.c pc_machine_class_init is where those flag are initialized.
+
+has_apic_build is disabled in pc.c, is it right?? we need apic timer in tcg mode. 
+try enable it??
+
+look into cpus.c qemu_init_vcpu()
+qemu_kvmtcg_init
+qemu_tcg_init_vcpu
+
+
+
+modified:
+hw/i386/pc.c func:pc_machine_initfn pcms->apic_build_enable = true. 
+comment pcmc->has_apic_build = false
+what i want to do is remove apic when kvm receive it.
+q:how to know how does kvm initial
+
+
+log: cont->stuck in tcg cont->kvm mode
+(qemu) cont
+vm_start started 
+finished queued cpu work
+cpu_resume
+tcg 1
+kvm 0
+cpu_resume, about to kick cpu
+cond_broadcast in cpu_kick
+tcg_enabled kicking
+(qemu) queued work first is null
+queued work first is null
+resuming tcg
+queued work first is null
+cpu_post_load called
+calling wait_io
+queued work first is null
+cond_broadcast in cpu_kick
+tcg_enabled kicking
+calling wait_io
+queued work first is null
+the very first tr.flags should be 8b00
+stop
+cond_broadcast in cpu_kick
+tcg_enabled kicking
+calling wait_io
+queued work first is null
+cond_broadcast in cpu_kick
+tcg_enabled kicking
+(qemu) cont
+vm_start started 
+finished queued cpu work
+cpu_resume
+tcg 0
+kvm 1
+cpu_resume, about to kick cpu
+cond_broadcast in cpu_kick
+kvm cpu kicking
+(qemu) kvm ipi
+queued work first is null
+resuming kvm
+cpu_post_load called
+kvm_cpu_exec running
+queued work first is null
+kvm_cpu_exec running 

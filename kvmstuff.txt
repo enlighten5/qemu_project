@@ -1,0 +1,3073 @@
+qemu guide:
+
+this document
+    search for commands:
+    to run
+
+browsing code
+    tools
+        cscope -R -b -q
+        ~/.bashrc: CSCOPE_DB=/home/jacobot/qemu/cscope.out; export CSCOPE_DB
+        ctags -R *
+        ~/.vimrc
+            source ~/.vim/autoload/cscope_maps.vim
+            set csre
+            set tags=tags;/
+
+        use ctrl + \, f -- cscope
+        ctrl + \, s -- cscope
+        ctrl + ] -- ctags ctrl-t to jump back
+        :tabe filename to open a new file in vim table
+    main func
+        vl.c
+    tcg and kvm thread management
+        cpus.c
+    tcg and kvm code
+        accel/
+    x86, (also x86_64) target specific code
+    same folder structure also under include/
+        target/i386/
+        hw/i386/
+            pc.c
+            pc_piix.c
+    migration/
+        migration related, previously used to print out VM States for all devices
+        start looking from savevm.c
+
+testing image for qemu and kvm
+    https://people.debian.org/~aurel32/qemu/i386/
+
+./configure --target-list=x86_64-softmmu --enable-debug
+make -j4
+
+MOSE live migration based on-the-fly software emulation
+    compatibility fixes
+    
+**************************************************************************
+
+nvm, clock not running, not sure how to reproduce that result i got before
+i guess stepping through things with gdb, maybe i didn't run make -j4 before
+set cpu->halted = 0?
+
+p cpu->halted?
+
+
+
+seems like the clock is running now, it just eventually gets into this state
+
+
+(qemu) cond_broadcast in cpu_kick
+tcg_enabled kicking
+queued work first is null
+queued work first is null
+resuming tcg
+cpu_post_load called
+cpu_exec_enter
+cpu_exec_enter after
+cpu_exec_middle
+cpu_exec ending
+calling wait_io
+queued work first is null
+cpu_exec_enter
+cpu_exec_enter after
+cpu_exec_middle
+qemu: fatal: invalid tss type
+EAX=00000500 EBX=b72025ac ECX=b70d4b64 EDX=ff295082
+ESI=000002d6 EDI=b5469000 EBP=bf9a3c28 ESP=bf9a3b90
+EIP=b71fe71f EFL=00203282 [--S----] CPL=3 II=0 A20=1 SMM=0 HLT=0
+ES =007b 00000000 ffffffff 00c0f300 DPL=3 DS   [-WA]
+CS =0073 00000000 ffffffff 00c0fa00 DPL=3 CS32 [-R-]
+SS =007b 00000000 ffffffff 00c0f300 DPL=3 DS   [-WA]
+DS =007b 00000000 ffffffff 00c0f300 DPL=3 DS   [-WA]
+FS =0000 00000000 ffffffff 00c00000
+GS =0033 b74426c0 ffffffff 00d0f300 DPL=3 DS   [-WA]
+LDT=0000 00000000 000fffff 00000000
+TR =0080 c1c05e40 0000206b 00008b00 DPL=0 TSS32-busy
+GDT=     c1c00000 000000ff
+IDT=     c135b000 000007ff
+CR0=8005003b CR2=b76fb160 CR3=1f9aa000 CR4=000006d0
+DR0=0000000000000000 DR1=0000000000000000 DR2=0000000000000000 DR3=0000000000000000 
+DR6=00000000ffff0ff0 DR7=0000000000000400
+CCS=00000080 CCD=00000000 CCO=EFLAGS  
+EFER=0000000000000000
+FCW=037f FSW=0000 [ST=0] FTW=ff MXCSR=00001f80
+FPR0=0000000000000000 0000 FPR1=b400000000000000 4008
+FPR2=0000000000000000 0000 FPR3=b400000000000000 4008
+FPR4=0000000000000000 0000 FPR5=8000000000000000 3fff
+FPR6=fd70a3d70a3d7000 3ffe FPR7=a523e86aaaaaa800 3ffe
+XMM00=ffffff00000000ff0000000000000000 XMM01=ffffffffffffffffffffffffffffffff
+XMM02=00000000000000000000000000000000 XMM03=00000000000000000000000000000000
+XMM04=005f005f005f005f0064006400640064 XMM05=01010101010101010101010101010101
+XMM06=00ff00000000000000ff000000000000 XMM07=00080008000800080043004300430043
+Aborted (core dumped)
+
+
+okay ... so what's going on, you have the tcg part alternating between two instructions, and the clock 
+is still not running either
+
+
+https://qemu.weilnetz.de/doc/qemu-doc.html#g_t_002dno_002dkvm_002dirqchip-_0028since-1_002e3_002e0_0029
+using  option:
+-machine kernel_irqchip=off
+
+
+env->eip 0xc101b233
+env->eip 0xc11429c7
+env->eip 0xc101b2df
+env->eip 0xc11429c7
+env->eip 0xc101b2df
+env->eip 0xc104a965
+env->eip 0xc104b870
+env->eip 0xc104f352
+env->eip 0xc126fc80[Switching to Thread 0x7fffe94a4700 (LWP 21522)]
+__GI_raise (sig=sig@entry=6) at ../sysdeps/unix/sysv/linux/raise.c:51
+51	../sysdeps/unix/sysv/linux/raise.c: No such file or directory.
+
+
+hw/i386/pc.c:1579
+
+
+configure_accel()
+  qemu_vcpu_init()
+  uncomment those lines
+
+  for a fresh qemu, tcg mode
+    trace the pit_realizefn in qemu/hw/timer/i8254.c
+    when tcg runs, this shoudl be called
+    when kvm runs, this is disabled
+    this seems to be the reason for halting
+    lack of interrupt stuff
+
+
+investigate why
+  all clocks stop running
+  where does hlt come from, can we disable it, should we disable it
+  does sig_ipi affect the timer stuff
+
+  http://blog.alex.org.uk/2013/08/24/changes-to-qemus-timer-system/
+
+
+the realtime clock should always be running
+
+
+the problem is probably the SIG_IPI handler
+
+
+HLT is being called
+  halt the cpu until next external interrupt is received
+
+  remember that the handle interrupt thing was never called
+  grep cc->halted, cpu->halted
+  the var gets set in handle interrupt
+  and also in the processing of the instruction
+
+there's some race condition might be leading to deadlock
+
+heng says: enable software clock/timer
+kvm_enabled() means it assumes the hardware does something
+
+could look for something with the interrupt_request variable
+
+the issue is that there's an instruction issuing a halt instruction
+timers issue periodic halt isntructions apparently
+RR_thread fn issues kick timer or something, is that relevant?
+
+
+there's someting weird with the MTTCG tcg_thread_fn
+    ask heng about it laeter.
+next thing to check is cpu->queued_work_first ...
+is there a work item?
+it seemsl iken ot... what happens ifn ot?
+
+time to switch tasks
+
+interrupt request, used to calcualted has_work, used to set cpu->halted
+
+check the vmstate logs o__O what was a good value for that
+
+or maybe just print it out during a normal tcg run
+
+why is it always halted then?
+what happened?
+
+i've confirmed that the register state is wrong when kvm exits
+    info registers : c101ab10
+    running tcg printing out the eip gives values that are much smaller than that
+
+calling info registers will update it
+it appears to do the same thing as cpu_synchronize
+    causes the same error
+
+you need to get used to using gdb
+
+
+configure_accelerator()
+kvm_init
+
+
+context did get initialized
+maybe the value of the tcg_ctx thing got "lost"?
+maybe we need to manually set it again on switching
+
+we couldj ust do a poc to call initialize accel tcg again on first time switching
+blegh..
+
+what next? investigate how the value of this pointer gets "lost"
+maybe cuz ur in a separate thread
+
+look at diff between rr_tcg and MTTCG
+
+tcg_ctx ... NULL
+
+
+pc is always 829464
+no matter where kvm was, this kind of shows that it was updated
+
+the pc value is udpated by ... *pc = env->pc
+
+make sure the env->pc is updated
+this hsould be something that post-load does right?
+
+************************************************************************************
+
+
+how does the gdb stuff work .. i think you've used it before right?
+
+the running stuff is a bit messed up right now, try using gdb for kvm only
+and for gdb only, if those work, then try on your own thing
+
+
+tried:
+    maintaining an idle thread
+problem:
+    execution would not switch to other thread somehow
+    perhaps was using the mutexes correctly
+
+tried:
+    creating a new thread_fn, having only 1 thread for both kvm_tcg
+problem:
+    segfault in tcg_tb_alloc when setting tb pointer
+
+to try:
+    destroying and recreating the thread from scratch on each
+    switch between kvm and tcg
+        perhaps calling initialization again
+
+    this is actually more accurate to doing a fake migration
+
+
+
+ms->accelerator state
+tcg doesn't really have accel state in the first place though
+so this pointer stored here probably doesn't matter
+
+i think i need a "thread manager"
+    how do i switch between the two? what if i just switch between the
+    two thread functions? actually only 1 thread exists at a time 
+    it creates anew, but the cpu state should be unaffected right?
+
+    what if i just make one thread fn, and have goto labels jumped to depending on a global state variable?
+
+    actually no reason to use one thread at all
+
+commands:
+    links:
+    run:
+    commands:
+    note:
+    resume:
+    plan:
+    report:
+    main:
+
+************************************************************************
+look into s2e, they run in kvm and then switch to symbolic execution for tcg
+************************************************************************
+main:
+vl.c main method notes
+i've added printouts(error_printf) or comments faround most of the places of interest
+and then never bothered to remove them, turns out to have been a good decision
+
+run_board_init()
+    i386_cpu_realize_fn()
+        qemu_init_vcpu()
+            qemu_create_thread(qemu_kvm_cpu_thread_fn)
+
+cpu_synchronize_post_init()
+
+vm_start()
+    resume_all_vcpus()
+        resume_cpu()
+            cpu->stop = false
+            cpu->stopped = false
+            qemu_cpu_kick(CPUState*)
+                cpu_exit(cpu)
+                
+what if cpu->stop and cpu->stopped are set as a conditional variables
+so that just when you change it's value .. there is other code that starts running
+yes .. that's exactly what happens 
+
+i can set tcg_allowed() manually
+************************************************************************
+coudl still look into why kvm + shared memory doesn't work
+there should be some other things in the kvm community that have it work
+like ivshmem, what kind of performance penalties do they get from that?
+
+************************************************************************
+
+call tcg_init with kvm-enabled
+
+************************************************************************
+links:
+https://www.ece.cmu.edu/~ece845/sp13/docs/kvm-paper.pdf
+http://blog.vmsplice.net/2011/03/qemu-internals-overall-architecture-and.html
+https://stackoverflow.com/questions/1934715/difference-between-a-coroutine-and-a-thread
+http://nairobi-embedded.org/035_qom_and_device_creation.html
+https://stackoverflow.com/questions/20675226/qemu-code-flow-instruction-cache-and-tcg/21000294#21000294
+************************************************************************
+accel_init_machine() called from configure_accelerator()
+    allocate space for the other AccelState
+    actually tcg doesn't really need any accelstate
+    use accel_find() .. look at configure_accelerator() example
+
+so that takes care of initialization, let's see where they "start" running the vm stuff in vl.c
+and see how it gets "routed" or w.e. to the accelerator stuff
+the hope is that we can just end up swapping something like a current_accel and other_accel
+was thnking asomething along the lines of MachineState current_machine ..
+instead of accel state mabye, nah
+
+there's migration_object_init() after that but i guess we can mostly ignore it for now
+
+**********I still don't know where tcg_allowed and kvm_allowed get set
+    the machine property thing sets only the string and manages the initialization of stuff
+    this could be important for places where you want both things to execute
+
+*** start running the VM, use one accel, keep other idle
+you should name these ... tasks
+machine_run_board_init(current_machine);
+
+hw/core/machine.c
+machine_run_board_init from vl.c initializes MachineClass
+
+hw/i386/pc.c
+MachineState -> PCMachineState
+MachineClass -> PCMachineClass
+the state is not initialized yet
+
+CPUState is a device
+qemu_opts_for_each( ... device_init_func ... )
+cpu_synchronize_all_post_init
+
+
+************************************************************************
+
+type register static adds its to the table
+type_init ... causes the type_register_static fn to be called 
+after invoking module_call_init
+
+************************************************************************
+
+to decide whether orn ot to use an idle_machine pointers
+should investigate the use of current_machine in the QOM and identify
+areas where one might want to swap or update the two variables
+
+there is an type class and an type state for some user defined type
+i remember in some header file ther ewas a tutorial over this
+should try to follow along with it while using current_machien in your own example
+
+it seems type_init is used in conjunction with the object.h methods as well
+it just happens to be implemented in module.h. it's possible that looking up
+module/features on the wiki or google in relation to qemu could then have
+mislead you since module can be used for multiple things.
+    the misleading part being DSO stuff which is not as relevant
+
+in this case it acts as a mechansim to separate block devices, tracing code, 
+QOMs, and options used for configuration of everything else.
+
+****next, it seems sensible to investigate in order: QOM, options, block
+note:
+QOM
+    go over the .h file tutorial, use current_machine as an example for yourself
+    class and instance are two separate structs
+    there is class initialization, then there is object of that class type intiialization
+    dynamically initialized classes contain inherited function pointers of their parents/ancestors
+
+    first, parent classes are init'd, then the current class is init'd w/ class_init
+    there is a separate class struct only if it defines its own virtual methods
+    set using the .class_size member of TypeInfo
+
+    class holds functions and properties applying to all states
+    state holds variables and data that "vary"
+
+    so, then it seems that we shouldj ust have two AccelState things
+    last time i looked for it, it seemed like TCG doesn't have a state struct
+    but there is KVMState
+
+Machine
+    Class
+        void init(MachineState*)
+            enable configure_accelerator() to do both kvm and tcg
+            assertion fails in init addess space thing
+
+            where does this init fn get set?
+            it has to be in one of the earlier things called
+            maybe machine_options sets it
+        void reset(MachineState*)
+
+    State
+        the fact that the AccelState and char * accel fields are inside MachineState
+        makes it seems like they designed tcg and kvm to be swappable
+        MachineState: kvm_shadow_mem might be something to investigate
+
+        machine_class_init describes options that can set the fields in MachineState
+    PCMachine
+        select_machine() in vl.c:main() will select PCI440X-2.10
+        ****possible_cpus_arch_ids ... check if kvm_init or tcg_init set this thing
+        pc_cpus_init() fails
+
+#define TYPE_X86_CPU "x86_64-cpu"
+        Class
+        State
+
+        x86_cpu_realize_fn
+
+machine init done notifier
+Accel Class/State
+    Class
+        int available(void)
+        int init_machine(MachineState*)
+            i guess this is allowed to fail and the MachineClass init() is not
+    State
+        Empty skeleton
+        you can investigate the options section to see how this gets assigned/inherited
+        to KVMState or TCGState(nonexistent, maybe just uses skeleton)
+
+        MachineState->accelerator is used only for KVM, so there is no worry of
+        using just one thing ..
+        so what parts of the Accel Class will vary?
+qemu/qom/cpu.c
+CPU Class/State
+    is this a device?
+    X86CPU
+Options
+    okay, how do i start looking into options?
+    the last trail i was following was from modules.h
+    that is kind of the idea i got ... look into module_call_init(OPT)
+
+    qemu-options.hx
+    """
+    @item accel=@var{accels1}[:@var{accels2}[:...]]
+    This is used to enable an accelerator. Depending on the target architecture,
+    kvm, xen, hax or tcg can be available. By default, tcg is used. If there is
+    more than one accelerator specified, the next one is used if the previous one
+    fails to initialize.
+    """
+
+    vl.c: 4414
+        ```
+        machine_opts = qemu_get_machine_opts();
+        if (qemu_opt_foreach(machine_opts, machine_set_property, current_machine,
+                             NULL)) {
+            object_unref(OBJECT(current_machine));
+            exit(1);
+        }
+
+        configure_accelerator(current_machine);
+        ```
+
+block
+    qemu/include/hw/qdev-core.h
+
+***discreps
+    memory diffs btwn tcg and kvm
+        dirty_log_mask
+    how do you reconcile the checks of tcg_enabled()
+        it's a bool variable #define tcg_enabled() tcg_allowed
+    how do you reconcile the checks of kvm_enabled()
+        if CONFIG_KVM_IS_POSSIBLE in /include/sysemu/kvm.h
+            it's a boolean variable #define kvm_enabled() kvm_allowed
+        else
+            it's 0
+    look into options
+
+    how do you call both init() functions for kvm and tcg
+        in qemu-options.hx they mention logic for specifying multiple accelerators as backup
+        perhaps it's possible to just modify that
+            that logic is in configure_accelerator() of vl.c
+            doesn't erally seem like a good thing to modify there
+
+        how do you set one of them "idle"
+    cpu->interrupt_request is masked in TCG
+
+include/sysemu/hw_accel.h
+
+heng talkeda bout tcg using mmio, that it should be the same for kvm or something
+i guess this is something important to look into
+there are io instructions that tcg emulates
+a write to that memory while executing in kvm should trigger a vmexit to qemu anyways i think
+tcg mmio should also just be same i guess
+    what kind of problems could arise? you're just assuming they both work
+
+************************************************************************
+there is a difference for memory allocation between kvm and tcg_enabled
+    see comments around search of configure_accel in vl.c
+    if you have an idle tcg thread, and kvm is running, and the memory is for one side
+        will this have any problems?
+        shared memory seems to work normally after loading or w.e.
+
+try running qemu with gdb
+see if you can automate testing using record replay
+    https://translatedcode.wordpress.com/2015/05/
+    see docs/replay.txt, wonder if it's the same thing
+
+maybe maintain an "idle_machine"
+update by doing a shallow memcpy and then set the accelerator pointer
+
+***missing link
+    where do the do_qemu_init functions get called?
+    the below module_call_init happens after
+
+************************************************************************
+report:
+
+    initialize Machine, CPU, with both kvm and tcg enabled
+    // set kvm_allowed=1, tcg_allowed=0 right before vm_start()
+
+plan:
+should start from a fresh qemu repo when implementing vcpu accelerator switching (VAS)?
+or perhaps no, the intiilaization settings for machine probably helps with compatibility
+    case in point, kvm_clock
+
+tasks
+    initialize both kvm and tcg ***
+    let kvm run, while tcg idle ***
+
+    resume:
+    tcg thread was just disabled .. and i forgot .. i'm tired
+
+    trying to debug why the thread swapping doesn't work
+    investigate: diff between single-threaded tcg and MTCG
+    can i activate MTCG with just one vcpu?
+    
+    what if kvm will work idle thread with mctcg?
+    do a search for kvm_enabled and tcg_enabled for initialization stuff
+        oh .. single threaded tcg
+        what if that timer screwed it?
+        you can have multiple vcpu for both
+
+        cpu_cond, pause_cond -- two globals
+        cpu->halt_cond -- vcpu specific conditional
+
+        how is each cond used?
+        set cpu->created = false before create_thread
+
+    find out how to activate a fake migration, just activate the post_load functions
+    then see where to go from there
+
+    post_load is called from vmstate_load_state in vmstate.c
+    this is a palace where it's reading from the file descriptor
+    and oncstructing the strut from a stream of bytes
+
+    should try to create a function that will call a modified version of
+    the migraitoni nitialization that wil send that data stuff
+
+    check vl.c i think there's something called init_migration,
+    it may have access to all the post load functions, and it should iterate overall the devices, copy paste it and modify it to call all the post load functions, lets call that function .. fake_migrate a.k.a postloads
+
+    this function of interest called from vl.c: migration_object_init
+    object_new(TYPE_MIGRATION)
+    creates an obj of type migration state
+    actually it's not interseting, it's just somethign to track the migration process
+    not something we can loop through to call post_loads
+    look at the place where migration actually gets started then
+
+    welp, i didn't find that either, but, another thing i coudl do
+    traverse the entire device tree, call all the post_load funcs i can find for all the non-null vmsd pointers
+    how do i traverse all the devices? is that what they do for storing all the vmsd data in the first place? look around in the migration folder
+
+    WOWOWOWOWOWWOOW
+    dump_vmstate_json_to_file
+    THIS IS THE FUNCTION WE WANT!!!!!
+
+    could also try using gdb if run out of ideas just to find where it fails
+
+    the system freezes after stop, cont, stop
+    the system is unresponse after stop, cont
+    try stop, cont without swap
+    try adding things to cpu_resume
+
+
+    kvm kills the thread, and sets thread->kicked=true
+    stop vs resume:
+    cpu->stop=true/false
+    cpu->stopped=false
+    qemu_cpu_kick(cpu);
+
+    changing the val of tcg_allowed and kvm_allowed doesn't seem to change it in all files
+    kvm_allowed is not declared in qemu_commons.h, tcg allowed is
+
+    qmp_stop: vm_stop, qmp_cont: vm_start
+    vm_stop(PAUSE) -> pause_all_vcpus
+    swap on  i guess?
+    cpu_syncrhonize_post_init
+
+    may need to start with kvm_allowed = 1 and tcg_allowed = 0
+    right now both are =1
+
+    refer to qemu_init_vcpu(cpu)
+    switch_accel() {
+        swap(tcg_allowed, kvm_allowed)
+        if (tcg_allowed) {
+            // call cpu_synchronize for kvm?
+            // maybe it was already called after stopping
+            cpu->thread = qemu_tcg_rr_cpu_thread_fn
+            cpu->halt_cond = single_tcg_halt_cond
+        }
+        else {
+            cpu->thread = qemu_kvm .. etc
+            cpu->halt_cond = ...
+        }
+    }
+
+
+/* state subset only touched by the VCPU itself during runtime */
+#define KVM_PUT_RUNTIME_STATE   1
+/* state subset modified during VCPU reset */
+#define KVM_PUT_RESET_STATE     2
+/* full state set, modified during initialization or on vmload */
+#define KVM_PUT_FULL_STATE      3
+
+
+static void do_kvm_cpu_synchronize_post_init(CPUState *cpu, run_on_cpu_data arg)
+{
+    kvm_arch_put_registers(cpu, KVM_PUT_FULL_STATE);
+    cpu->vcpu_dirty = false;
+}
+
+
+    what's needed for switching?
+
+    switch to tcg ***
+    switch to kvm
+    start an idle tcg thread with kvm enabled, or start an "idle kvm enabled"
+        or start on demand
+    switch from kvm to tcg every 100.. 1000 cycles?
+        ***could also switch on HMP command
+        clear the code cache when switching to tcg
+        update the cpu states
+        use kvm_run api call or kvm_resume api call, probably run
+    investigate if one thread runs for each vcpu
+    kvm can have multiple vcpus, so can tcg, what's the difference? can you have a mix?
+    start simple, 1 vcpu / vm
+
+    ***trace the api calls made for kvm-enabled receiving migration
+        similar api calls should be made for switching accelerator
+    ***trace the function calls made for tcg receiving migration
+        similar func calls should be made for switching accelerator
+    *** trace api calls made for resuming a kvm-enabled migration
+
+QAPI, read about this
+    so i clicked on QAPI link which lead to QMP, it's a way to manage a qemu instance
+    programmatically, you should be using this ... it would be good if there was a way
+    to get notified of events like logging in or enter keypresses though .. probably won't be
+
+    so at the moment the amount of automation we can get is limited
+
+now, looking for event loop in qemu, see if that is where qapi events are processed
+then find the handler for migration
+
+try understanding the qemu architecture better, it's a combination of threading + coroutines
+
+************************************************************************
+there seems to be some problem with shared memory and kvm
+"probably" hard to solve?
+
+there should be roughly cpu state, memory state, io state
+    should only just need to synchronize the cpu state,
+    clear the code cache when switching to tcg
+
+heng: I wonder if we can count ept violations?
+    look into the kvm accel, see where it exits and how qemu
+    gets notified that the vm has exited
+    there should be a kvm_run structure, see what info that can give you
+
+    https://lwn.net/Articles/513317/
+
+    sudo perf kvm stat record
+    sudo perf kvm stat report
+
+
+shmem baseline
+    no migration fix
+    npb benchmark
+    https://wiki.archlinux.org/index.php/benchmarking
+
+**********************************************************************
+heng: I wonder if we can count ept violations?
+    look into the kvm accel, see where it exits and how qemu
+    gets notified that the vm has exited
+    there should be a kvm_run structure, see what info that can give you
+
+shmem baseline
+    no migration fix
+    npb benchmark
+    https://wiki.archlinux.org/index.php/benchmarking
+
+*** savevm doesn't work, shared mem breaks it, why is this the case?
+*** should i set intx_setmask?
+*** what if we should SET the conforming bit for kvm?
+*** exception_injected and interrupt_injected are both 0 for kt, this shows that it's not always supposed to be force set to -1
+    could be the cause of some problems, don'tk now how to do without it though
+*** what actually happens in pre_load?
+    
+*** why is avx512 in tcg? how to remove it?
+*** why is zmmh hi16 present in ktk and not kk?
+    hi16_zmm_reg
+*** what is mac and why are those large buffer things different?
+*** how much slower is shmem? try testing a benchmark INSIDE the VM
+is ivshmem usable? it's use case is diff qemu procs running diff VMs that can share some mem 
+*** might below be a cause of some of our problems with freezing?
+    https://www.linux-kvm.org/page/Migration#Problems_.2F_Todo
+    TSC offset on the new host must be set in such a way that the guest sees a monotonically increasing TSC, otherwise the guest may hang indefinitely after migration.
+    Migration does not work while CPU real-mode/protected mode are still changing.
+*** why is the unmigratable flag set for vmstate_x86_cpu?
+    what does this mean exactly?
+
+ 
+cscope -R -b -q
+o__o
+******************************************************************
+so what's the plan? i was gonna comb through the diffs ...
+after that ... could just go through the qemu code
+
+
+test kvm to kvm with shared memory
+    it seems to work in that no freezes and no slowdowns are observed
+    there is a delay associated with browsing the filesystem
+test kvm to kvm w/out shared memory
+    we expect that there is no delay in browsing the filesystem
+    it is as expected, this is true
+
+should check tcg to tcg w/ and w/out shared memory though as well
+pretty certain that w/out shared memory is fine though
+so let's just check the shared memory one first
+
+so, the fact that kvm to kvm works, except with delay
+
+okay, let's do tcg to tcg again but w/ more memory
+
+there is also a delay, but kvm basically freezes
+bleh, so what now then?
+
+the problem is that kvm receiving from tcg is much much slower
+
+man, is my laptop shit, or is it just tcg is fucking up now
+just tested kvm to tcg and the mouse is not moving now for tcg
+tried it again, it seems fine
+and it seems frozen now, i think perhaps my laptop is just too slow for this?
+it could be my laptop is bad, or somethign is wrong with migration,
+or a combination of both .. it may be both even
+
+do you even remember tcg being faster with 1024 GB on your laptop?
+seems noticable on desktop, but not on your laptop
+
+well, tcg at least doesn't get to the point of freezing
+with kvm receiving, you might get frozen
+... alright ..
+so, we've learned that you should test on the desktop with tcg
+and that kvm gets frozen which we already knew but now we're sure
+since tcg seems just mostly slow, we could probably still use it to migrate back and forth
+
+now we'll trying clearing the accsessed bit when kvm accepts migration
+i don't remember what mose said, lets check it out
+it tells us to SET the accessed bit in kvm, that causes kvm to freeze on accepting for us
+
+trial: clearing accessed bit
+this causes a h/w error
+
+KVM: entry failed, hardware error 0x80000021
+
+If you're running a guest on an Intel machine without unrestricted mode
+support, the failure can be most likely due to the guest entering an invalid
+state for Intel VT. For example, the guest maybe running in big real mode
+which is not supported on less recent Intel processors.
+
+so it does seem like we should be setting it, that means it might only be causing
+an error because it's in combination with something else.
+mose paper probably had some good reason for setting it
+
+let's test this stuff on the desktop just in case the freezing from setting accessed bit
+on kvm accepting migration is becacuse of my laptop being fucky
+
+lets test that hypothesis ... set the accessed b it on desktop like it was originally
+supposed to be
+
+we could just try printint it out right?
+no wait .. i think we might not be able to print it out from cpu_load .. it's in another
+... mode or osmethign, just doesn't have access
+
+seems like it freezes only when connecting to the web? the fuk
+what if this is a bug in the fukin web browser?
+
+okay .. without hte web browser, it just seemsl ike there is a huge slowdonw,
+i guess we should test kvm to kvm on the desktop now
+
+setting it seems pretty necessary
+
+someting is weird in migration from tcg to kvm
+kvm to kvm is mostly fine observed freeze once, but it unfroze
+there is a delay associated with navigating the filesystem
+but it resolves in reasonable time for tcg receiving and kvm to kvm without "tcg ancestor"
+
+need benchmarks inside VM, find out of shared memory on TCG is slowed down too
+    .. that might take a while ..
+    could even go back to NO GUI just to test speed
+    is the clock accurate in VM?
+
+noFork finished with time: 165547
+mr contains hello from prog1
+finished reading with time: 1222332
+~ 7 times slowdown
+
+memory_region_init_ram_from_file
+    seems like the place to be
+
+shmem_test/
+
+email draft
+
+backends/hostmem-file.c file backend
+
+here's the report for this week:
+i read up a little on tmpfs and ramfs which can be our options for shared memory
+
+how about trying to make it work without separate processes
+... look at vl.c ... the place where they start each accel
+could we just instantiate both states, have pointers for mem be the same somehow
+
+where does mmap create shared memory
+****
+seemed like migration kvm worked?
+maybe it only failed on the lab computer .. flip flopping man
+
+
+run:
+****************************************************************************
+make -j4 && ./x86_64-softmmu/qemu-system-x86_64 -hda /home/jacob/Downloads/debian_squeeze_i386_desktop.qcow2 -m 512M -enable-kvm
+
+make -j4 && ./x86_64-softmmu/qemu-system-x86_64 -hda /home/zhenxiao/Downloads/debian_squeeze_i386_desktop.qcow2 -m 512M -enable-kvm -monitor stdio
+make -j4 && ./x86_64-softmmu/qemu-system-x86_64 -hda /home/zhenxiao/Downloads/debian_squeeze_i386_desktop.qcow2 -m 512M -enable-kvm -monitor stdio -machine kernel_irqchip=off
+make -j4 && sudo ./x86_64-softmmu/qemu-system-x86_64 -hda /home/zhenxiao/Downloads/debian_squeeze_i386_desktop.qcow2 -m 512M -enable-kvm -monitor stdio -machine kernel_irqchip=off
+
+
+env->eip 0xc101b233
+env->eip 0xc11429c7
+env->eip 0xc101b2df
+env->eip 0xc11429c7
+env->eip 0xc101b2df
+env->eip 0xc104a965
+env->eip 0xc104b870
+env->eip 0xc104f352
+env->eip 0xc126fc80[Switching to Thread 0x7fffe94a4700 (LWP 21522)]
+__GI_raise (sig=sig@entry=6) at ../sysdeps/unix/sysv/linux/raise.c:51
+51	../sysdeps/unix/sysv/linux/raise.c: No such file or directory.
+
+
+hw/i386/pc.c:1579
+
+
+configure_accel()
+  qemu_vcpu_init()
+  uncomment those lines
+
+  for a fresh qemu, tcg mode
+    trace the pit_realizefn in qemu/hw/timer/i8254.c
+    when tcg runs, this shoudl be called
+    when kvm runs, this is disabled
+    this seems to be the reason for halting
+    lack of interrupt stuff
+
+
+investigate why
+  all clocks stop running
+  where does hlt come from, can we disable it, should we disable it
+  does sig_ipi affect the timer stuff
+
+  http://blog.alex.org.uk/2013/08/24/changes-to-qemus-timer-system/
+
+
+the realtime clock should always be running
+
+
+the problem is probably the SIG_IPI handler
+
+
+HLT is being called
+  halt the cpu until next external interrupt is received
+
+  remember that the handle interrupt thing was never called
+  grep cc->halted, cpu->halted
+  the var gets set in handle interrupt
+  and also in the processing of the instruction
+
+there's some race condition might be leading to deadlock
+
+heng says: enable software clock/timer
+kvm_enabled() means it assumes the hardware does something
+
+could look for something with the interrupt_request variable
+
+the issue is that there's an instruction issuing a halt instruction
+timers issue periodic halt isntructions apparently
+RR_thread fn issues kick timer or something, is that relevant?
+
+
+there's someting weird with the MTTCG tcg_thread_fn
+    ask heng about it laeter.
+next thing to check is cpu->queued_work_first ...
+is there a work item?
+it seemsl iken ot... what happens ifn ot?
+
+time to switch tasks
+
+interrupt request, used to calcualted has_work, used to set cpu->halted
+
+check the vmstate logs o__O what was a good value for that
+
+or maybe just print it out during a normal tcg run
+
+why is it always halted then?
+what happened?
+
+i've confirmed that the register state is wrong when kvm exits
+    info registers : c101ab10
+    running tcg printing out the eip gives values that are much smaller than that
+
+calling info registers will update it
+it appears to do the same thing as cpu_synchronize
+    causes the same error
+
+you need to get used to using gdb
+
+
+configure_accelerator()
+kvm_init
+
+
+context did get initialized
+maybe the value of the tcg_ctx thing got "lost"?
+maybe we need to manually set it again on switching
+
+we couldj ust do a poc to call initialize accel tcg again on first time switching
+blegh..
+
+what next? investigate how the value of this pointer gets "lost"
+maybe cuz ur in a separate thread
+
+look at diff between rr_tcg and MTTCG
+
+tcg_ctx ... NULL
+
+
+pc is always 829464
+no matter where kvm was, this kind of shows that it was updated
+
+the pc value is udpated by ... *pc = env->pc
+
+make sure the env->pc is updated
+this hsould be something that post-load does right?
+
+************************************************************************************
+
+
+how does the gdb stuff work .. i think you've used it before right?
+
+the running stuff is a bit messed up right now, try using gdb for kvm only
+and for gdb only, if those work, then try on your own thing
+
+
+tried:
+    maintaining an idle thread
+problem:
+    execution would not switch to other thread somehow
+    perhaps was using the mutexes correctly
+
+tried:
+    creating a new thread_fn, having only 1 thread for both kvm_tcg
+problem:
+    segfault in tcg_tb_alloc when setting tb pointer
+
+to try:
+    destroying and recreating the thread from scratch on each
+    switch between kvm and tcg
+        perhaps calling initialization again
+
+    this is actually more accurate to doing a fake migration
+
+
+
+ms->accelerator state
+tcg doesn't really have accel state in the first place though
+so this pointer stored here probably doesn't matter
+
+i think i need a "thread manager"
+    how do i switch between the two? what if i just switch between the
+    two thread functions? actually only 1 thread exists at a time 
+    it creates anew, but the cpu state should be unaffected right?
+
+    what if i just make one thread fn, and have goto labels jumped to depending on a global state variable?
+
+    actually no reason to use one thread at all
+
+commands:
+    links:
+    run:
+    commands:
+    note:
+    resume:
+    plan:
+    report:
+    main:
+
+************************************************************************
+look into s2e, they run in kvm and then switch to symbolic execution for tcg
+************************************************************************
+main:
+vl.c main method notes
+i've added printouts(error_printf) or comments faround most of the places of interest
+and then never bothered to remove them, turns out to have been a good decision
+
+run_board_init()
+    i386_cpu_realize_fn()
+        qemu_init_vcpu()
+            qemu_create_thread(qemu_kvm_cpu_thread_fn)
+
+cpu_synchronize_post_init()
+
+vm_start()
+    resume_all_vcpus()
+        resume_cpu()
+            cpu->stop = false
+            cpu->stopped = false
+            qemu_cpu_kick(CPUState*)
+                cpu_exit(cpu)
+                
+what if cpu->stop and cpu->stopped are set as a conditional variables
+so that just when you change it's value .. there is other code that starts running
+yes .. that's exactly what happens 
+
+i can set tcg_allowed() manually
+************************************************************************
+coudl still look into why kvm + shared memory doesn't work
+there should be some other things in the kvm community that have it work
+like ivshmem, what kind of performance penalties do they get from that?
+
+************************************************************************
+
+call tcg_init with kvm-enabled
+
+************************************************************************
+links:
+https://www.ece.cmu.edu/~ece845/sp13/docs/kvm-paper.pdf
+http://blog.vmsplice.net/2011/03/qemu-internals-overall-architecture-and.html
+https://stackoverflow.com/questions/1934715/difference-between-a-coroutine-and-a-thread
+http://nairobi-embedded.org/035_qom_and_device_creation.html
+https://stackoverflow.com/questions/20675226/qemu-code-flow-instruction-cache-and-tcg/21000294#21000294
+************************************************************************
+accel_init_machine() called from configure_accelerator()
+    allocate space for the other AccelState
+    actually tcg doesn't really need any accelstate
+    use accel_find() .. look at configure_accelerator() example
+
+so that takes care of initialization, let's see where they "start" running the vm stuff in vl.c
+and see how it gets "routed" or w.e. to the accelerator stuff
+the hope is that we can just end up swapping something like a current_accel and other_accel
+was thnking asomething along the lines of MachineState current_machine ..
+instead of accel state mabye, nah
+
+there's migration_object_init() after that but i guess we can mostly ignore it for now
+
+**********I still don't know where tcg_allowed and kvm_allowed get set
+    the machine property thing sets only the string and manages the initialization of stuff
+    this could be important for places where you want both things to execute
+
+*** start running the VM, use one accel, keep other idle
+you should name these ... tasks
+machine_run_board_init(current_machine);
+
+hw/core/machine.c
+machine_run_board_init from vl.c initializes MachineClass
+
+hw/i386/pc.c
+MachineState -> PCMachineState
+MachineClass -> PCMachineClass
+the state is not initialized yet
+
+CPUState is a device
+qemu_opts_for_each( ... device_init_func ... )
+cpu_synchronize_all_post_init
+
+
+************************************************************************
+
+type register static adds its to the table
+type_init ... causes the type_register_static fn to be called 
+after invoking module_call_init
+
+************************************************************************
+
+to decide whether orn ot to use an idle_machine pointers
+should investigate the use of current_machine in the QOM and identify
+areas where one might want to swap or update the two variables
+
+there is an type class and an type state for some user defined type
+i remember in some header file ther ewas a tutorial over this
+should try to follow along with it while using current_machien in your own example
+
+it seems type_init is used in conjunction with the object.h methods as well
+it just happens to be implemented in module.h. it's possible that looking up
+module/features on the wiki or google in relation to qemu could then have
+mislead you since module can be used for multiple things.
+    the misleading part being DSO stuff which is not as relevant
+
+in this case it acts as a mechansim to separate block devices, tracing code, 
+QOMs, and options used for configuration of everything else.
+
+****next, it seems sensible to investigate in order: QOM, options, block
+note:
+QOM
+    go over the .h file tutorial, use current_machine as an example for yourself
+    class and instance are two separate structs
+    there is class initialization, then there is object of that class type intiialization
+    dynamically initialized classes contain inherited function pointers of their parents/ancestors
+
+    first, parent classes are init'd, then the current class is init'd w/ class_init
+    there is a separate class struct only if it defines its own virtual methods
+    set using the .class_size member of TypeInfo
+
+    class holds functions and properties applying to all states
+    state holds variables and data that "vary"
+
+    so, then it seems that we shouldj ust have two AccelState things
+    last time i looked for it, it seemed like TCG doesn't have a state struct
+    but there is KVMState
+
+Machine
+    Class
+        void init(MachineState*)
+            enable configure_accelerator() to do both kvm and tcg
+            assertion fails in init addess space thing
+
+            where does this init fn get set?
+            it has to be in one of the earlier things called
+            maybe machine_options sets it
+        void reset(MachineState*)
+
+    State
+        the fact that the AccelState and char * accel fields are inside MachineState
+        makes it seems like they designed tcg and kvm to be swappable
+        MachineState: kvm_shadow_mem might be something to investigate
+
+        machine_class_init describes options that can set the fields in MachineState
+    PCMachine
+        select_machine() in vl.c:main() will select PCI440X-2.10
+        ****possible_cpus_arch_ids ... check if kvm_init or tcg_init set this thing
+        pc_cpus_init() fails
+
+#define TYPE_X86_CPU "x86_64-cpu"
+        Class
+        State
+
+        x86_cpu_realize_fn
+
+machine init done notifier
+Accel Class/State
+    Class
+        int available(void)
+        int init_machine(MachineState*)
+            i guess this is allowed to fail and the MachineClass init() is not
+    State
+        Empty skeleton
+        you can investigate the options section to see how this gets assigned/inherited
+        to KVMState or TCGState(nonexistent, maybe just uses skeleton)
+
+        MachineState->accelerator is used only for KVM, so there is no worry of
+        using just one thing ..
+        so what parts of the Accel Class will vary?
+qemu/qom/cpu.c
+CPU Class/State
+    is this a device?
+    X86CPU
+Options
+    okay, how do i start looking into options?
+    the last trail i was following was from modules.h
+    that is kind of the idea i got ... look into module_call_init(OPT)
+
+    qemu-options.hx
+    """
+    @item accel=@var{accels1}[:@var{accels2}[:...]]
+    This is used to enable an accelerator. Depending on the target architecture,
+    kvm, xen, hax or tcg can be available. By default, tcg is used. If there is
+    more than one accelerator specified, the next one is used if the previous one
+    fails to initialize.
+    """
+
+    vl.c: 4414
+        ```
+        machine_opts = qemu_get_machine_opts();
+        if (qemu_opt_foreach(machine_opts, machine_set_property, current_machine,
+                             NULL)) {
+            object_unref(OBJECT(current_machine));
+            exit(1);
+        }
+
+        configure_accelerator(current_machine);
+        ```
+
+block
+    qemu/include/hw/qdev-core.h
+
+***discreps
+    memory diffs btwn tcg and kvm
+        dirty_log_mask
+    how do you reconcile the checks of tcg_enabled()
+        it's a bool variable #define tcg_enabled() tcg_allowed
+    how do you reconcile the checks of kvm_enabled()
+        if CONFIG_KVM_IS_POSSIBLE in /include/sysemu/kvm.h
+            it's a boolean variable #define kvm_enabled() kvm_allowed
+        else
+            it's 0
+    look into options
+
+    how do you call both init() functions for kvm and tcg
+        in qemu-options.hx they mention logic for specifying multiple accelerators as backup
+        perhaps it's possible to just modify that
+            that logic is in configure_accelerator() of vl.c
+            doesn't erally seem like a good thing to modify there
+
+        how do you set one of them "idle"
+    cpu->interrupt_request is masked in TCG
+
+include/sysemu/hw_accel.h
+
+heng talkeda bout tcg using mmio, that it should be the same for kvm or something
+i guess this is something important to look into
+there are io instructions that tcg emulates
+a write to that memory while executing in kvm should trigger a vmexit to qemu anyways i think
+tcg mmio should also just be same i guess
+    what kind of problems could arise? you're just assuming they both work
+
+************************************************************************
+there is a difference for memory allocation between kvm and tcg_enabled
+    see comments around search of configure_accel in vl.c
+    if you have an idle tcg thread, and kvm is running, and the memory is for one side
+        will this have any problems?
+        shared memory seems to work normally after loading or w.e.
+
+try running qemu with gdb
+see if you can automate testing using record replay
+    https://translatedcode.wordpress.com/2015/05/
+    see docs/replay.txt, wonder if it's the same thing
+
+maybe maintain an "idle_machine"
+update by doing a shallow memcpy and then set the accelerator pointer
+
+***missing link
+    where do the do_qemu_init functions get called?
+    the below module_call_init happens after
+
+************************************************************************
+report:
+
+    initialize Machine, CPU, with both kvm and tcg enabled
+    // set kvm_allowed=1, tcg_allowed=0 right before vm_start()
+
+plan:
+should start from a fresh qemu repo when implementing vcpu accelerator switching (VAS)?
+or perhaps no, the intiilaization settings for machine probably helps with compatibility
+    case in point, kvm_clock
+
+tasks
+    initialize both kvm and tcg ***
+    let kvm run, while tcg idle ***
+
+    resume:
+    tcg thread was just disabled .. and i forgot .. i'm tired
+
+    trying to debug why the thread swapping doesn't work
+    investigate: diff between single-threaded tcg and MTCG
+    can i activate MTCG with just one vcpu?
+    
+    what if kvm will work idle thread with mctcg?
+    do a search for kvm_enabled and tcg_enabled for initialization stuff
+        oh .. single threaded tcg
+        what if that timer screwed it?
+        you can have multiple vcpu for both
+
+        cpu_cond, pause_cond -- two globals
+        cpu->halt_cond -- vcpu specific conditional
+
+        how is each cond used?
+        set cpu->created = false before create_thread
+
+    find out how to activate a fake migration, just activate the post_load functions
+    then see where to go from there
+
+    post_load is called from vmstate_load_state in vmstate.c
+    this is a palace where it's reading from the file descriptor
+    and oncstructing the strut from a stream of bytes
+
+    should try to create a function that will call a modified version of
+    the migraitoni nitialization that wil send that data stuff
+
+    check vl.c i think there's something called init_migration,
+    it may have access to all the post load functions, and it should iterate overall the devices, copy paste it and modify it to call all the post load functions, lets call that function .. fake_migrate a.k.a postloads
+
+    this function of interest called from vl.c: migration_object_init
+    object_new(TYPE_MIGRATION)
+    creates an obj of type migration state
+    actually it's not interseting, it's just somethign to track the migration process
+    not something we can loop through to call post_loads
+    look at the place where migration actually gets started then
+
+    welp, i didn't find that either, but, another thing i coudl do
+    traverse the entire device tree, call all the post_load funcs i can find for all the non-null vmsd pointers
+    how do i traverse all the devices? is that what they do for storing all the vmsd data in the first place? look around in the migration folder
+
+    WOWOWOWOWOWWOOW
+    dump_vmstate_json_to_file
+    THIS IS THE FUNCTION WE WANT!!!!!
+
+    could also try using gdb if run out of ideas just to find where it fails
+
+    the system freezes after stop, cont, stop
+    the system is unresponse after stop, cont
+    try stop, cont without swap
+    try adding things to cpu_resume
+
+
+    kvm kills the thread, and sets thread->kicked=true
+    stop vs resume:
+    cpu->stop=true/false
+    cpu->stopped=false
+    qemu_cpu_kick(cpu);
+
+    changing the val of tcg_allowed and kvm_allowed doesn't seem to change it in all files
+    kvm_allowed is not declared in qemu_commons.h, tcg allowed is
+
+    qmp_stop: vm_stop, qmp_cont: vm_start
+    vm_stop(PAUSE) -> pause_all_vcpus
+    swap on  i guess?
+    cpu_syncrhonize_post_init
+
+    may need to start with kvm_allowed = 1 and tcg_allowed = 0
+    right now both are =1
+
+    refer to qemu_init_vcpu(cpu)
+    switch_accel() {
+        swap(tcg_allowed, kvm_allowed)
+        if (tcg_allowed) {
+            // call cpu_synchronize for kvm?
+            // maybe it was already called after stopping
+            cpu->thread = qemu_tcg_rr_cpu_thread_fn
+            cpu->halt_cond = single_tcg_halt_cond
+        }
+        else {
+            cpu->thread = qemu_kvm .. etc
+            cpu->halt_cond = ...
+        }
+    }
+
+
+/* state subset only touched by the VCPU itself during runtime */
+#define KVM_PUT_RUNTIME_STATE   1
+/* state subset modified during VCPU reset */
+#define KVM_PUT_RESET_STATE     2
+/* full state set, modified during initialization or on vmload */
+#define KVM_PUT_FULL_STATE      3
+
+
+static void do_kvm_cpu_synchronize_post_init(CPUState *cpu, run_on_cpu_data arg)
+{
+    kvm_arch_put_registers(cpu, KVM_PUT_FULL_STATE);
+    cpu->vcpu_dirty = false;
+}
+
+
+    what's needed for switching?
+
+    switch to tcg ***
+    switch to kvm
+    start an idle tcg thread with kvm enabled, or start an "idle kvm enabled"
+        or start on demand
+    switch from kvm to tcg every 100.. 1000 cycles?
+        ***could also switch on HMP command
+        clear the code cache when switching to tcg
+        update the cpu states
+        use kvm_run api call or kvm_resume api call, probably run
+    investigate if one thread runs for each vcpu
+    kvm can have multiple vcpus, so can tcg, what's the difference? can you have a mix?
+    start simple, 1 vcpu / vm
+
+    ***trace the api calls made for kvm-enabled receiving migration
+        similar api calls should be made for switching accelerator
+    ***trace the function calls made for tcg receiving migration
+        similar func calls should be made for switching accelerator
+    *** trace api calls made for resuming a kvm-enabled migration
+
+QAPI, read about this
+    so i clicked on QAPI link which lead to QMP, it's a way to manage a qemu instance
+    programmatically, you should be using this ... it would be good if there was a way
+    to get notified of events like logging in or enter keypresses though .. probably won't be
+
+    so at the moment the amount of automation we can get is limited
+
+now, looking for event loop in qemu, see if that is where qapi events are processed
+then find the handler for migration
+
+try understanding the qemu architecture better, it's a combination of threading + coroutines
+
+************************************************************************
+there seems to be some problem with shared memory and kvm
+"probably" hard to solve?
+
+there should be roughly cpu state, memory state, io state
+    should only just need to synchronize the cpu state,
+    clear the code cache when switching to tcg
+
+heng: I wonder if we can count ept violations?
+    look into the kvm accel, see where it exits and how qemu
+    gets notified that the vm has exited
+    there should be a kvm_run structure, see what info that can give you
+
+    https://lwn.net/Articles/513317/
+
+    sudo perf kvm stat record
+    sudo perf kvm stat report
+
+
+shmem baseline
+    no migration fix
+    npb benchmark
+    https://wiki.archlinux.org/index.php/benchmarking
+
+**********************************************************************
+heng: I wonder if we can count ept violations?
+    look into the kvm accel, see where it exits and how qemu
+    gets notified that the vm has exited
+    there should be a kvm_run structure, see what info that can give you
+
+shmem baseline
+    no migration fix
+    npb benchmark
+    https://wiki.archlinux.org/index.php/benchmarking
+
+*** savevm doesn't work, shared mem breaks it, why is this the case?
+*** should i set intx_setmask?
+*** what if we should SET the conforming bit for kvm?
+*** exception_injected and interrupt_injected are both 0 for kt, this shows that it's not always supposed to be force set to -1
+    could be the cause of some problems, don'tk now how to do without it though
+*** what actually happens in pre_load?
+    
+*** why is avx512 in tcg? how to remove it?
+*** why is zmmh hi16 present in ktk and not kk?
+    hi16_zmm_reg
+*** what is mac and why are those large buffer things different?
+*** how much slower is shmem? try testing a benchmark INSIDE the VM
+is ivshmem usable? it's use case is diff qemu procs running diff VMs that can share some mem 
+*** might below be a cause of some of our problems with freezing?
+    https://www.linux-kvm.org/page/Migration#Problems_.2F_Todo
+    TSC offset on the new host must be set in such a way that the guest sees a monotonically increasing TSC, otherwise the guest may hang indefinitely after migration.
+    Migration does not work while CPU real-mode/protected mode are still changing.
+*** why is the unmigratable flag set for vmstate_x86_cpu?
+    what does this mean exactly?
+
+ 
+cscope -R -b -q
+o__o
+******************************************************************
+so what's the plan? i was gonna comb through the diffs ...
+after that ... could just go through the qemu code
+
+
+test kvm to kvm with shared memory
+    it seems to work in that no freezes and no slowdowns are observed
+    there is a delay associated with browsing the filesystem
+test kvm to kvm w/out shared memory
+    we expect that there is no delay in browsing the filesystem
+    it is as expected, this is true
+
+should check tcg to tcg w/ and w/out shared memory though as well
+pretty certain that w/out shared memory is fine though
+so let's just check the shared memory one first
+
+so, the fact that kvm to kvm works, except with delay
+
+okay, let's do tcg to tcg again but w/ more memory
+
+there is also a delay, but kvm basically freezes
+bleh, so what now then?
+
+the problem is that kvm receiving from tcg is much much slower
+
+man, is my laptop shit, or is it just tcg is fucking up now
+just tested kvm to tcg and the mouse is not moving now for tcg
+tried it again, it seems fine
+and it seems frozen now, i think perhaps my laptop is just too slow for this?
+it could be my laptop is bad, or somethign is wrong with migration,
+or a combination of both .. it may be both even
+
+do you even remember tcg being faster with 1024 GB on your laptop?
+seems noticable on desktop, but not on your laptop
+
+well, tcg at least doesn't get to the point of freezing
+with kvm receiving, you might get frozen
+... alright ..
+so, we've learned that you should test on the desktop with tcg
+and that kvm gets frozen which we already knew but now we're sure
+since tcg seems just mostly slow, we could probably still use it to migrate back and forth
+
+now we'll trying clearing the accsessed bit when kvm accepts migration
+i don't remember what mose said, lets check it out
+it tells us to SET the accessed bit in kvm, that causes kvm to freeze on accepting for us
+
+trial: clearing accessed bit
+this causes a h/w error
+
+KVM: entry failed, hardware error 0x80000021
+
+If you're running a guest on an Intel machine without unrestricted mode
+support, the failure can be most likely due to the guest entering an invalid
+state for Intel VT. For example, the guest maybe running in big real mode
+which is not supported on less recent Intel processors.
+
+so it does seem like we should be setting it, that means it might only be causing
+an error because it's in combination with something else.
+mose paper probably had some good reason for setting it
+
+let's test this stuff on the desktop just in case the freezing from setting accessed bit
+on kvm accepting migration is becacuse of my laptop being fucky
+
+lets test that hypothesis ... set the accessed b it on desktop like it was originally
+supposed to be
+
+we could just try printint it out right?
+no wait .. i think we might not be able to print it out from cpu_load .. it's in another
+... mode or osmethign, just doesn't have access
+
+seems like it freezes only when connecting to the web? the fuk
+what if this is a bug in the fukin web browser?
+
+okay .. without hte web browser, it just seemsl ike there is a huge slowdonw,
+i guess we should test kvm to kvm on the desktop now
+
+setting it seems pretty necessary
+
+someting is weird in migration from tcg to kvm
+kvm to kvm is mostly fine observed freeze once, but it unfroze
+there is a delay associated with navigating the filesystem
+but it resolves in reasonable time for tcg receiving and kvm to kvm without "tcg ancestor"
+
+need benchmarks inside VM, find out of shared memory on TCG is slowed down too
+    .. that might take a while ..
+    could even go back to NO GUI just to test speed
+    is the clock accurate in VM?
+
+noFork finished with time: 165547
+mr contains hello from prog1
+finished reading with time: 1222332
+~ 7 times slowdown
+
+memory_region_init_ram_from_file
+    seems like the place to be
+
+shmem_test/
+
+email draft
+
+backends/hostmem-file.c file backend
+
+here's the report for this week:
+i read up a little on tmpfs and ramfs which can be our options for shared memory
+
+how about trying to make it work without separate processes
+... look at vl.c ... the place where they start each accel
+could we just instantiate both states, have pointers for mem be the same somehow
+
+where does mmap create shared memory
+****
+seemed like migration kvm worked?
+maybe it only failed on the lab computer .. flip flopping man
+
+
+run:
+****************************************************************************
+make -j4 && ./x86_64-softmmu/qemu-system-x86_64 -hda /home/jacob/Downloads/debian_squeeze_i386_desktop.qcow2 -m 512M -enable-kvm
+
+make -j4 && ./x86_64-softmmu/qemu-system-x86_64 -hda /home/jacobot/Downloads/debian_squeeze_i386_desktop.qcow2 -m 512M -enable-kvm -monitor stdio
+make -j4 && ./x86_64-softmmu/qemu-system-x86_64 -hda /home/jacobot/Downloads/debian_squeeze_i386_desktop.qcow2 -m 512M -enable-kvm -monitor stdio -machine kernel_irqchip=off
+make -j4 && ./x86_64-softmmu/qemu-system-x86_64 -hda /home/jacobot/Downloads/debian_squeeze_i386_desktop.qcow2 -m 512M -enable-kvm
+
+./qemu-system-x86_64 -hda /home/jacob/Downloads/debian_squeeze_i386_desktop.qcow2 -m 512M -incoming tcp:0:4444
+------------------------------------------------------------------------------
+make -j4 && ./x86_64-softmmu/qemu-system-x86_64 -hda /home/jacob/Downloads/debian_squeeze_i386_desktop.qcow2 -m 1024M  -enable-kvm
+
+./qemu-system-x86_64 -hda /home/jacob/Downloads/debian_squeeze_i386_desktop.qcow2 -m 1024M -incoming tcp:0:4444
+
+******************************************************************************
+make -j4 && x86_64-softmmu/qemu-system-x86_64 /home/jacob/Downloads/debian_squeeze_i386_desktop.qcow2 -m 512M -object \
+memory-backend-file,id=mem,size=512M,mem-path=/dev/shm/memory,share=on \
+-numa node,nodeid=0,cpus=0,memdev=mem -enable-kvm
+
+./qemu-system-x86_64 /home/jacob/Downloads/debian_squeeze_i386_desktop.qcow2 -m 512M -object \
+memory-backend-file,id=mem,size=512M,mem-path=/dev/shm/memory,share=on \
+-numa node,nodeid=0,cpus=0,memdev=mem -incoming tcp:0:4444
+******************************************************************************
+make -j4 && x86_64-softmmu/qemu-system-x86_64 /home/jacob/Downloads/debian_squeeze_i386_desktop.qcow2 -m 1024M -object \
+memory-backend-file,id=mem,size=1024M,mem-path=/dev/shm/memory,share=on \
+-numa node,nodeid=0,cpus=0,memdev=mem -enable-kvm
+
+./qemu-system-x86_64 /home/jacob/Downloads/debian_squeeze_i386_desktop.qcow2 -m 1024M -object \
+memory-backend-file,id=mem,size=1024M,mem-path=/dev/shm/memory,share=on \
+-numa node,nodeid=0,cpus=0,memdev=mem -incoming tcp:0:4444
+******************************************************************************
+http://www.thegeekstuff.com/2008/11/overview-of-ramfs-and-tmpfs-on-linux/
+
+from answers online, should do benchmarks to see which is better, but for our purposes assuming we have the ram
+should just use ramfs ... right now it doesn't work for some reason though
+insance 0x0 error ...
+
+
+alright, where did i leave off last time ...
+shared memory was just implemented
+but it didn't really work
+shared memory was implemented in ram.c or migration, just ignored some things
+the symptom was kvm receiving migration not working, i couldn't think of reason for why this would be. So i thought maybe it's a problem with just normal migration. But then again there's nothing to really find a problem with in that area ... what could thecase be .. maybe there is some flag .. not I made sure on the lab computer that the smi flag stuff was .. as it should be ... there's also that problem with /tmp/ vs /dev/shm/mem ... there should be no reason for it to be dfiferent
+
+they're expecting some kind of resaerch for tmpfs
+
+so i need to read the whitepaper
+
+tmpfs lives in the page cache and the swap space
+    swap space is the disk ... so there will be slowdown if the system has not enough
+    space
+
+
+
+https://stackoverflow.com/questions/5656530/how-to-use-shared-memory-with-linux-in-c
+    evaluation
+what is memoy-backend-file and memory-backend-ram?
+https://bugzilla.redhat.com/show_bug.cgi?id=981527
+    there is a cache=none or cache=writeback option too
+
+
+read this at some point
+    https://lwn.net/Articles/658511/
+
+changed
+    migration/ram.c
+        added some if statements commenting out 
+    hw/i386/kvmvapic.c
+        vapic_prepare
+            this is the func causing error
+            maybe it's because the dirty page counter is wrong
+            since this devie uses memory
+            there is a little bit of ram being sent over
+            try printing out the NAME for the ram page or memory region
+                i remember this is a debugging feature
+    qemu/qemu-docs.txt
+        read this ... how did i miss this before?
+        especially the notes on the x86 implementation
+    
+    well ... seems to work
+        what do i do about the temporary freeze though?
+        flush tlb?
+        TLB gets flushed on accepting migration
+        but the function is configured to only do something if it's TCG
+        how would I get kvm to flush the TLB?
+
+        2:35, frozen ... lets see how long it takes to unfreeze
+        didn't unfreeze
+
+        tried on /tmp/ram .. that was the problem, use /dev/shm/mem instead
+            they are both tmpfs filesystems though according to $(df -h)
+            check if /tmp/ram is writable to anyone
+        check the space there in $(df -h)
+        For w.e. reason I can only load VMs with 1
+read about tmpfs here
+http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.92.707&rep=rep1&type=pdf
+https://www.kernel.org/doc/Documentation/virtual/kvm/mmu.txt
+note, you can test this stuff on your laptop too, it has dev/shm/mem too
+https://qemu.weilnetz.de/doc/qemu-doc.html
+
+try some of the "kvm in the real world" recommendations below too
+this kvm freezing on accepting migration feels kind of like with the
+migration without shared memory error too o__o
+
+patch and old qemu version is here
+https://github.com/0day-ci/qemu/commit/126ad1660c0cf40b2cb79f4bd9f413c49d607e23
+
+https://www.linux-kvm.org/images/1/13/KvmForum2008%24kdf2008_3.pdf
+template-base snapshot, template-based vm ... runv hyperv stuff ... good stuff?
+RHEL/SLES linux virtual desktop servers
+                "
+       o_o      Time drift fix is a must
+                -no-kvm-pit --> -no-irq-chip 
+   o_._o        "
+
+
+changes
+    they created a RamState struct
+    before there was 1 large bitmap
+    now there is a separate bitmap for each RamBlock
+
+    so what do i need to actually change?
+    should i still let a bitmap be initialized for each ramblock?
+    there's no need right?
+    if i don't let it be init'd then it could cause somewhere to access a null ptr?
+        their method is finegrained ..
+    the safe thing is to let a new bitmap be there
+    to test if it works ... just
+
+    wait, what if it's still one large bitmap?
+    just like they call things separately?
+        but still contiguous?
+    nah.. that doesn't erlaly make sense
+
+to change:
+    for each block, if shared and bypass is enabled
+        DON't sync bitmap range
+        DON't add to dirty_pages count
+        DOn't set the bitmap -- i assume set means set to 1, since it was just cleared
+
+        allow the bitmap to be there?
+        I guess this is what gets checked during iterate
+
+
+implement and understand 'bypass shared memory'
+do benchmark for tmpfs
+
+migration.c ram.c migration.h
+todo
+    migration capability shared memory bypass patch
+        performance benchmark for tmpfs
+    ensure correctness of tcg/kvm swapping
+    libvirt
+    vcpu swapping
+
+previous session:
+    migration.c master migration thread
+
+investigate, where is migration started? what does it say to do?
+    where does this differ for tcg and kvm? osd--SDO_do-ds
+    hmp.c
+don't know how hmp commands get called
+
+kvm to kvm interesting too?
+ONE 32-core vm, two 16 core hosts? o_____o
+
+they run mpi a lot huh
+lots of memory used for their things, shared memory is important
+
+append to a file instead of using error_printf perhaps
+wordpress updates?
+
+current
+    look at how memory/disk or w.e. it is gets allocated
+    SOFT mmu, that stuff yeah, that thing about the mappings o__o
+
+qemu_kvm_cpu_thread_fn
+qemu_tcg_rr_cpu_thread_fn
+    single-threaded
+qemu_tcg_cpu_thread_fn
+    multi-threaded
+qemu_tcg_init_vcpu
+    the kvm version of this is in kvm-all.c
+    but the tcg one is just in qemu/cpus.c
+
+investigate the modules list thing
+find: what's the default accel option, tcg single or multi thread?
+    multi
+CONFIG_SOFTMMU
+
+todo
+    read through qemu to attempt to prove correctness
+        find out how tcg works
+        find out how kvm works
+        find their differences
+    find out how the accel class works
+        is it feasible to switch them?
+    upload to lanl gitlab
+        you are doing more testing on the lab computer after all..
+    this is pretty unrelated to decaf at the moment
+        but, the end goal seems to be to use this kvm/tcg switching for something decaf related
+        might as well get more knowledge on decaf too
+    find a more modern vm to test on
+    read selective symbolic execution
+
+another really important thing is to just "prove" correctness for kvm/tcg switching...
+you really need to get more in detail about how each thing works o_o
+
+have a folder for the memory values and stuff ...
+just delete the old ones i guess, you weren't printing out enough stuff anyway
+
+goal, ideal: switch one vcpu's accel class
+problem: vcpus share memory no?
+some memory is managed by kvm side, others by tcg, how to synchronize?
+kvm TLB needs to be flushed
+
+would kernel side stuf need to be changed too?
+
+qemu process, kvm process, shared memory
+vnc cloud computing
+multicore .. some vcpus on kvm, some on tcg
+how do you decide which vcpus to put on kvm or tcg?
+    how do you make sure that certain threads are scheduled on on or another?
+
+more testing
+    download another linux
+
+read through qemu code ... just to find more
+read the docs/devel/multiple-iothreads.txt
+also figure out how do functions that are pointers in 
+type_register stuff like at the bottom of kvm-all.c tcg-all.c get called eventually
+diff on qemu 1.0 and decaf
+
+seems to work, just slow to resume for kvm receiving migration
+
+kvm slow on startup b/c of tlb page table entries empty
+fill the ept
+find way to speed this up
+we're working on migrating on the same computer ... so there's no need to transfer
+memory really. just keep it in the same place
+
+investigate how qemu softmmu works.
+I remember reading somewhere that qemu uses kvm not for the intel vtx but also
+just to manage memory right?
+so then you can use tcg while using kvm memory management stuff ...
+think about configuring this to only use softmmu
+check which method of memory management it's using by default as well
+and if this can be configured
+
+what if you can do kvm execution with softmmu ... then your memory migration already
+has no(or just a little, speed of tcg resuming is fast) overhead?
+
+redo the discrepancies analysis
+
+"To use this network setup with the Linux kernel, you must set the configuration option CONFIG_E1000=y when compiling."
+https://en.wikibooks.org/wiki/QEMU/Networking
+https://wiki.qemu.org/Documentation/Networking
+
+seemed to need acpi to be disabled
+
+next to test is networking
+    by default it should bridge to host's network 
+    test the procedure out first by using the original 
+
+
+make -j4 && ./x86_64-softmmu/qemu-system-x86_64 -hda /home/jacob/Downloads/debian_squeeze_i386_standard.qcow2 -enable-kvm
+
+./qemu-system-x86_64 -hda /home/jacob/Downloads/debian_squeeze_i386_standard.qcow2 -incoming tcp:0:4444
+
+extract the minimal amount of changes to get migration working
+    enable acpi
+test with more complicated state - other processes running etc.
+extrapolate reason for required changes
+    requires finding more about how kvm vs tcg works .. and computer cpu stuff in general..
+verify that the isdtr, vmsd, field names are the same for most part
+    discrepancies don't have to be eliminated
+        they just have to be made diff when transferring between
+        this could be done somewhat automatically ..?
+go through decaf
+how to upgrade decaf's qemu?
+
+        //jxu023 -- tcg
+        //env->tr.flags |= DESC_C_MASK; // this breaks tcg
+        //env->tr.flags &= DESC_R_MASK; // breaks tcg
+        env->tr.flags &= ~DESC_R_MASK; //jxu023
+        env->segs[R_CS].flags &= ~DESC_A_MASK; //jxu023
+        // tcg clear the smi flag ... is it even there..?
+
+        // even for tcg to tcg this is necessary?
+        cs->interrupt_request &= ~CPU_INTERRUPT_SMI; // jxu023 why is this necessary now?
+        // invalid tss type
+        env->interrupt_injected = 0; //jxu023
+        env->exception_injected = 0; //jxu023
+    }
+    //jxu023 -- kvm
+    else {
+        env->tr.flags |= DESC_R_MASK; //jxu023
+        env->segs[R_CS].flags |= DESC_A_MASK; //jxu023
+        // kvm should set the smi flag ..? i guess send an interrupt
+        //cs->interrupt_request |= CPU_INTERRUPT_SMI;
+        //cpu_interrupt(cs, CPU_INTERRUPT_SMI);
+        env->interrupt_injected = -1; //jxu023
+        env->exception_injected = -1; //jxu023
+
+
+mine[1,2,3,4]
+kvm,tcg,kvm,tcg
+savevm mine4
+
+try enabling acpi
+
+accel class and accel state
+state is this mostly empty thing just referencing its parent?
+and then class has a bunch of global properties
+
+compare the init machine methods from kvm vs tcg
+    tcg_init
+        tcg-all.c
+    kvm_init
+        kvm-all.c
+    is there a section for pci assignment in there?
+
+accel.c: configure accelerator
+what are these global properties stored in AccelClass?
+
+i've investigated the accel class
+i can't find pci related stuff
+
+.. plan next is to print out values for these field names..
+
+
+sometimes when migrating .. key input just doesn't go through, other times it goes through and crashes, other times it seems to have gone in, hangs for a sec then crashes (rarest)
+
+might want to enable acpi after pci some stuff? disable cpu hotplug instead somehow
+
+aggressively disabling stuff basically o__o
+
+use loadvm mine1 mine2
+savevm
+
+cpu hotplug has functionality within the acpi stuff
+disabled that
+    no difference now
+
+run some application inside vm during migration
+    for loop .. print out
+    recreate mine1 and mine2 using with this
+qemu-options.def
+
+
+redo idstr w/ or w/out acpi
+    yep w/out acpi elmiinate the discreps i think
+progress
+    found a better location to modify functionality
+    crash on keyboard or mouse input
+aggressively disable stuff
+current ideas
+    crash on keyboard or mouse input
+        investigate which pci device it goes through
+    output and save ALL the migration info and then compare between kvm and tcg
+    disable kvm device assignment means make it assign devies using the qemu tcg way..?
+    are there even two separate ways?
+
+https://lwn.net/Articles/642596/
+savevm mine // saved with kvm
+savevm mine2 // saved with tcg
+loadvm mine
+loadvm mine2
+savevm min3 // agh
+pass a -no-acpi arg
+ ... it doesn't log in ... should be able to though ..
+should replace mine and mine2
+    takes a million years for tcg to boot up 
+
+leave pci enabled .. let acpi stuff go then disable pci
+is acpi x86_64 specific?
+
+.. oh man
+try to disable acpi and pci from config file
+
+
+what is the diff between PCMachineClass and PCMachineState?
+State vs Class in general?
+
+
+pc_machine_class_init ... in pc.c
+probably want to disable kvmclock from there instead .. and also pci_enabled
+oh no, that was pit, pci was not disabled
+what is acpi?
+
+i found smm in pc.h
+    struct PCMachineState
+    it's the thing in pc.h too
+    what is the function that initializes this?
+        how is it handled in kvm vs tcg?
+            look more in depth for accel
+    where are the functions in pc.c called from?
+
+
+wut to do about smi?
+    you cleared the interrupt smi flag ... but uh ... what else i guess
+    intel vt-x smi how does it manage
+    man, i'll jsut assume clear or set the smi flag just means the interrupt ..?o__O
+    for setting the smi flag ... do i need to remember what the smi thing was?
+        might want to see how kvm handles smi
+maybe look through kvm's kernel side migration code .... for device assignment stuff
+
+device assignment support is in vfio or pci
+seems like just disable pci? .. man
+
+
+https://pdos.csail.mit.edu/6.828/2004/readings/i386/toc.htm
+
+after log in image
+
+
+modified (annotated with // jxu023):
+    kvmclock ignore | savevm.c
+    accessed bit CS descriptor | machine.c
+    readable, conforming bit Task Register | machine.c
+
+    cpu/tsc_khz ignore | vmstate.c
+    apic timer | apic.c
+        called timer_del always within apic_post_load
+            do this by setting timer_expiry to -1
+                just calling del seems to cause other issues
+        can't do printouts there directly
+        
+    *changes thus far do not seem to affect execution for tcg to tcg or kvm to kvm migration
+    here is where migrate works at grub
+
+    disable pit | hw/i386/pc_piix.c
+
+    // seems to cause a guest has not initialized display error now for tcg to kvm ..
+    // breaks something?
+    *changes thus far do not seem to affect execution for tcg to tcg or kvm to kvm migration
+
+
+progress:
+    kvm to tcg
+        migrate before or at grub screen
+            works
+        after
+            qemu: fatal: invalid tss type
+            tcg to kvmX=0000000d EBX=09f7a8a8 ECX=01003211 EDX=00000007
+            ESI=00000000 EDI=00000001 EBP=bfd3b7a8 ESP=bfd3b770
+            EIP=0804aec2 EFL=00000297 [--S-APC] CPL=3 II=0 A20=1 SMM=0 HLT=0
+            ES =007b 00000000 ffffffff 00cff300 DPL=3 DS   [-WA]
+            CS =0073 00000000 ffffffff 00c0fb00 DPL=3 CS32 [-RA]
+            SS =007b 00000000 ffffffff 00c0f300 DPL=3 DS   [-WA]
+            DS =007b 00000000 ffffffff 00cff300 DPL=3 DS   [-WA]
+            FS =0000 00000000 00000000 00000000
+            GS =0033 b75af720 ffffffff 00dff300 DPL=3 DS   [-WA]
+            LDT=0000 00000000 ffffffff 00c00000
+            TR =0080 c1805e40 0000206b 00008f00 DPL=0 TrapGate32
+            GDT=     c1800000 000000ff
+            IDT=     c135b000 000007ff
+            CR0=8005003b CR2=c8c7008a CR3=078c2000 CR4=000006d0
+            DR0=0000000000000000 DR1=0000000000000000 DR2=0000000000000000 DR3=0000000000000000 
+            DR6=00000000ffff0ff0 DR7=0000000000000400
+            CCS=00000095 CCD=ffffffff CCO=EFLAGS  
+            EFER=0000000000000000
+            FCW=037f FSW=0000 [ST=0] FTW=00 MXCSR=00001f80
+            FPR0=0000000000000000 0000 FPR1=0000000000000000 0000
+            FPR2=0000000000000000 0000 FPR3=0000000000000000 0000
+            FPR4=0000000000000000 0000 FPR5=0000000000000000 0000
+            FPR6=0000000000000000 0000 FPR7=0000000000000000 0000
+            XMM00=0000000000000000000000000000ffff XMM01=00000000000000000000000000000000
+            XMM02=00000000000000000000000000000000 XMM03=00000000000000000000000000000000
+            XMM04=00000000000000000000000000000000 XMM05=00000000000000000000000000000000
+            XMM06=00000000000000000000000000000000 XMM07=00000000000000000000000000000000
+
+        migrate before or at grub screen
+            works
+        after log in
+            doesn't cause an exit to qemu .. stays in the vm ... why?
+
+            "kernel panic - not syncing: Attempted to kill the idle task!" 
+            pid:0 comm: swapper tainted
+            call trace:
+                panic
+                do_exit
+                printk
+                oops_end
+                do_divide_error
+                do_divide_error
+                native_safe_halt
+                smp_apic_timer_interrupt
+                error_code
+                default_idle
+                cpu_idle
+                start_kernel
+                _
+            EIP: native_safe_halt
+            kernel panic - not syncing: attempted to kill the idle task
+            pid:0, comm: swapper Tainted: G     D     2.6.32-5-686 #1
+            call trace:
+                panic
+                do_exit
+                printk
+                oops_end
+                do_divide_error
+                do_divide_error
+                native_safe_halt
+                hrtimer_start
+                tick_nohz_stop_sched_tick
+                smp_apic_timer_interrupt
+                error_code
+                native_safe_halt
+                default_idle
+                cpu_idle
+                start_kernel
+
+next:
+    disable device assignment support
+    *** ask heng about this
+        look up the pci related code
+        seems like a different thing from pit .. in MOSE paper it's grouped with it though...
+    apic timer
+        not sure if i handled this correctly, how to confirm?
+    investigate
+        is the way i disabled pit correct? in the paper they still had to deal with the flags thing
+        but it's entirely gone for me after setting has_pit false
+
+        piix4_pm - vmstate_acpi
+            "The PIIX integrated an IDE controller with two 8237 DMA controllers, the 8254 PIT, and two 8259 PICs and a PCI to ISA bus bridge."
+        piix4 gpe_cpu? what's this?
+            i'm guessing don't need to do this one
+        change piix4 gpe array size from 1 to 4
+            just look over it ..
+    confirm that guest clock source is hpet
+        see: list of clock sources : kvm-clock, tsc, hpet, acpi_pm
+        i think it already is .. probably check by putting a printf somewhere
+
+    find out more about the importance of timers in migration...
+    seems to be ... very important ... to not crashing ... o____...o
+
+archive:
+    pit disabled - doesn't migrate this stuff anymore anyway
+        ignore flags field in pit on accepting migration? decaf mod or tcg mod
+            what is the flags field? i don't see something like it
+                check PIT common and PIT channel state both...
+                something called iobase .. is that it?
+                check for stuff used to mask something .. that would probably be it
+            PITChannelState has things like rw_mode and status, write_state, read_state ...
+                semantically those can all be considered as flags
+
+jacob@o-o:~/qemu/x86_64-softmmu$ diff idstr_tcg*
+jacob@o-o:~/qemu/x86_64-softmmu$ diff idstr_kvm*
+jacob@o-o:~/qemu/x86_64-softmmu$ diff idstr_kvm.txt idstr_tcg.txt
+97d96
+< vmsd name is: cpu/tsc_khz
+105d103
+< idstr:kvmclock
+191d188
+< vmsd name is: ide_drive/pio_state
+
+for some reason tcg to kvm "almost works" already .. sometimes?
+    early transfer seems to work
+     ... a bit later doesn't work
+        "floating point exception"
+
+it's possible the ide_drive/pio_state is included depending on the time of transfer
+kvm is fast, so it loads quickly and starts existing
+tcg runs too slow so when i started the migration it didn't exist
+this would explain why tcg had the pio_state too in some migrations but not others
+    pretty much verified, ignore pio state for now then ..
+    kvm transfer had no pio also for one migration .. just start it early enough
+
+in that case there would be no need to modify anything for this
+
+
+why do vmsds get transferred multiple times?
+    it is b/c of different instantiations of the same struct
+        look at PITCommonState
+            it contains an array of 3 PITChannelState
+        pit is accessed through 4 ports consisting of 3 channels and for commands
+
+next:
+    looking through configratuions
+        qemu/qemu-options.def
+    try to see if you can set a configuration from vl.c
+        disable pit
+
+    apic timer stuff
+        from looking around it seems we either use hpet or apic, ... i think the config
+        now is to use hpet since nohpet is false?
+        so is this needed at all?
+        they'll both have the apic device but neither are used?
+        ... do a print out to verify?
+
+        hw/intc/apic.c : apic_post_load
+            timer stuff...
+        apic_pre_save
+            sync_vapic
+
+    ignore pit flags on accepting migration
+        there is no "flag" field in struct PITChannelState
+        is tcg pit always used?
+        there is a separate kvm pit from the idstr files it doesn't seem like it is
+        used
+        does seem like a problem with migration if it were different though
+        
+        oh no ... kvm_pit inherits from pit_common ... so it has the same name O__o
+        no .. they have different names, one is isa-pit, other is kvm-pit
+        perhaps it's only instantiated if pit is used at all
+        maybe it's still migrated but the pit is not used
+        i think it's using hpet instead?
+        if it uses hpet it doesn't use pit right?
+            could confirm that this is the case
+
+ide_drive/pio_state
+    pio is programmed input/output 
+
+apic timer ..
+    kvm should "remove" apic timer on accepting migration
+
+pit and device assignment support + pit includes flags field
+       kvm should ignore flags on migration
+       disable pit and device assignment support
+
+cpu/tsc_khz and kvmclock
+    both modified to ignore for accepting migration in kvm and tcg
+    paper only has it ignore for accepting tcg though
+
+cpu/tsc_khz
+    edit this discrepancy
+    do the same thing as with kvm_clock
+        ignore this field
+        increment
+        luckily it's the last vmsd within teh idstr
+        so you could literally do the same thing and iterate to the SECTION_END flag
+        but it ends in different place .. just iterate and then return then?
+
+apic timer
+    what to do about this?
+    hw/intc/apic.c
+    hw/intc/apic_common.c
+    hw/i386/apic_internal.h
+
+    this initial count might not be related
+    timer is stored as "next_time" and "timer_expiry"
+    this will create an error in kvm if it doesn't use these fields perhaps?
+    ... configure a timer for both may solve this?
+        VMSTATE_UINT32(initial_count, APICCommonState),
+        VMSTATE_INT64(initial_count_load_time, APICCommonState),
+        VMSTATE_INT64(next_time, APICCommonState),
+        VMSTATE_INT64(timer_expiry,
+                      APICCommonState), /* open-coded timer state */
+
+
+idstr name is: kvmclock
+    this one is ignored already
+idstr name is: cpu
+vmsd name is: cpu/tsc_khz
+    what happens when there is a tsc_khz vmsd field under kvm but not tcg?
+    does it load in and overwrite something?
+
+ide_drive/pio_state
+tcg doesn't have this pio_state
+
+
+discreps:
+kvmclock
+CS descriptor - accessed bit
+Task Register - conforming and readable bits
+    SMI flag
+PIIX4 state - gpe_cpu ** prob dont' need
+    APIC Timer
+
+small linux vm (255 MB)
+    user / user
+    root pass : root
+
+https://people.debian.org/~aurel32/qemu/i386/
+
+run the vm first to make sure this is the MOSE discrepancy you should be editing
+    the error is "invalid tss type"
+
+target i386 cpu.h , machine.c
+
+#define DESC_C_MASK     (1 << 10) /* code: conforming */
+#define DESC_R_MASK     (1 << 9)  /* code: readable */
+
+cpu_post_load looks like the one
+
+look at postload
+or preload
+
+if (!(env->cr[0] & CR0_PE_MASK) && (env->segs[R_CS].flags >> DESC_DPL_SHIFT & 3) != 0) {
+    env->segs[R_CS].flags &= ~(env->segs[R_CS].flags & DESC_DPL_MASK);
+    env->segs[R_DS].flags &= ~(env->segs[R_DS].flags & DESC_DPL_MASK);
+    env->segs[R_ES].flags &= ~(env->segs[R_ES].flags & DESC_DPL_MASK);
+    env->segs[R_FS].flags &= ~(env->segs[R_FS].flags & DESC_DPL_MASK);
+    env->segs[R_GS].flags &= ~(env->segs[R_GS].flags & DESC_DPL_MASK);
+    env->segs[R_SS].flags &= ~(env->segs[R_SS].flags & DESC_DPL_MASK);
+
+// |= this on the flags
+#define DESC_A_MASK     (1 << 8)
+
+cpu.h has defines for segment descriptor fields
+
+SegmentCache segs[6]; /* selector values */
+    which 1 coresponds to CS?
+struct SegmentCache
+    flags ..
+
+what is the task register? TR?
+
+... you should be searching this stuff in the intel architecture manual
+
+the CS is inside the TSS (task state segment) ... so this is probably it
+    TSS contains the whole state kind of ..
+http://wiki.osdev.org/Exceptions
+    invalid TSS is talked about here
+    An Invalid TSS exception occurs when an invalid segment selector is referenced as part of a task which, or as a result of a control transfer through a gate descriptor, which results in an invalid stack-segment reference using an SS selector in the TSS.
+
+TSS is "task specific segment"
+CS isj ust a in a segment register
+is it?
+edit the CS descriptor's type
+    probably in the target i386 section ... look at the pre_load or post_load to edit
+    also find the function used to edit the descriptor
+
+
+okay, there should be a way to compare HE (hardware equivalence) directly .. o__o
+right?
+it's just isn the devices? print out the config for each somewhere
+qemu/qemu-options.def
+    this is same between each
+    how to specify in commandline?
+docs/interop/live-block-operations.rst
+    live storage migration is talked about here
+now i am looking in the docs for something about this
+    QemuOps
+
+between kvm-enabled and tcg, the only differences should be in accel-opts
+
+libvirt may be useful for managing the config stuff
+
+try transferring odin1440.img from tcg to kvm-enabled as well
+
+investigate what support qemu has for "storage migration" since qemu 1.3 .. used through virsh normally
+
+libvirt is installed ... try it
+
+test using a more complex vm ... you might need to use the lab computer for this.
+25 GiB ... I have a total of 29 on my comp..
+https://people.debian.org/~aurel32/qemu/i386/
+
+you can convert virtualbox or vmware images to qemu image using qemu-img commandline
+https://askubuntu.com/questions/281763/is-there-any-prebuilt-qemu-ubuntu-image32bit-online
+
+discrepancies:
+    tcg doesn't have kvmclock | ignored on load vm
+    kvm-tpr-opt | don't need to do anything as long as both host and target are x86_64
+    clock source is already hpet ... neither side uses kvmclock
+        does migration from tcg to kvm work then? since kvmclock ignored on vm load
+
+clock.c
+savevm.c
+
+vim skipped.txt 
+jacob@o-o:~/qemu/x86_64-softmmu$ ./qemu-system-x86_64 -incoming tcp:0:4444 2> skipped.txt
+jacob@o-o:~/qemu/x86_64-softmmu$ vim skipped.txt 
+jacob@o-o:~/qemu/x86_64-softmmu$ ./qemu-system-x86_64 -incoming tcp:0:4444 --enable-kvm 2> normal.txt
+vcpu is created o_o
+^Cjacob@o-o:~/qemu/x86_64-softmmu$ ./qemu-system-x86_64 -incoming tcp:0:4444 --enable-kvm 2> nmal.txt
+vcpu is created o_o
+
+compare the skipped text
+difference is on line 21021
+
+
+look at savevm.h
+try doing while (byt = qemu_get_byte(f) != QEMU_VM_SECTION_END
+
+it modifies the QemuFile f -> buf_index, using the qemu_get_byte(f) function
+loadvm_full reads the file from that pointer to get the idstr and stuff...
+so the goal is then to read to the next one without doing anything
+make a new function for this?
+called skip_section?
+
+okay, how to modify kvmclock?
+    hw/i386/kvm/clock.c
+    VMStateDescription kvmclock_vmsd
+
+    modify qemu to ignore kvmclock when accepting a migration
+    if it is using TCG
+        if it's using kvm then ... well O--o no need to ignore
+
+you should also try the migration thing in the next tab over
+
+find the 3 stages relevant to live migration
+    stage 1, mark ram as dirty and transfer
+    ..
+
+last you were looking at accel state to try and find out about the bottom
+
+questions:
+http://lists.nongnu.org/archive/html/qemu-devel/
+
+investigate:
+https://developers.redhat.com/blog/2015/03/24/live-migrating-qemu-kvm-virtual-machines/
+http://perlstalker.vuser.org/blog/2008/09/20/life-with-kvm-live-migration/
+next you should read over the kvm live migration thing
+http://grivon.apgrid.org/quick-kvm-migration
+https://access.redhat.com/solutions/60034
+https://doc.opensuse.org/documentation/leap/virtualization/html/book.virt/cha.qemu.monitor.html#sec.qemu.monitor.get
+https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/6/html/Virtualization_Administration_Guide/sect-shared-storage-nfs-migration.html
+https://wiki.qemu.org/Features/CPUModels
+
+
+
+is migration required across different spaces?
+maybe from qemu to kvm vice versa just involves changing the accelerator class
+    is this legal?
+
+how does the accelerator class get used in the first place?
+    how does it decide whether to use TCG of KVM ...?
+
+the mose paper talks about qemu/kvm like the same thing the problem was about transferring to decaf
+
+qobjects do memory management for u? and reference coutn? garbage collec? all is device? qdev?
+
+
+storage migration and live migration seem to be different things
+live migration for the instance
+storage migration for the storage
+migration:
+    qemu "has to be launched with the same arguments two times"
+        i.e. same devices
+live migration:
+    transfer the state being used in the middle of a run (more data to transfer than 
+    during migration)   
+    guest can continue running while transfer happens
+    guest is stopped only on the last part of transfer
+
+struct VMStateDescription {
+    const char *name;
+    int unmigratable;
+    int version_id;
+    int minimum_version_id;
+    int minimum_version_id_old;
+    MigrationPriority priority;
+    LoadStateHandler *load_state_old;
+    int (*pre_load)(void *opaque);
+    int (*post_load)(void *opaque, int version_id);
+    void (*pre_save)(void *opaque);
+    bool (*needed)(void *opaque);
+    VMStateField *fields;
+    const VMStateDescription **subsections;
+};
+"
+
+=== State Live Migration ===
+
+This is used for RAM and block devices.  It is not yet ported to vmstate.
+<Fill more information here>
+
+===  Massaging functions ===
+
+Sometimes, it is not enough to be able to save the state directly
+from one structure, we need to fill the correct values there.  One
+example is when we are using kvm.  Before saving the cpu state, we
+need to ask kvm to copy to QEMU the state that it is using.  And the
+opposite when we are loading the state, we need a way to tell kvm to
+load the state for the cpu that we have just loaded from the QEMUFile.
+vmstate definitions .. set handler for
+pre_load
+post_load
+pre_save
+"
+
+vmx_set_vmx_msr
+	doesn't support setting the procbased ctl from userspace ...
+	but i've shown that you can set it when kvm inits
+	i'm not sure how to add that support .. not sure what they mean by 
+	non true msr cap is generated by true msr 
+make another copy of qemu ... get that exit reason?
+	....
+arch/x86/include/asm/msr.h
+	has rdmsr and wrmsr
+		... do we set MTF here or using vmcs_write
+
+
+//jxu023
+//**********
+vmcs_write32(CPU_BASED_VM_EXEC_CONTROL,
+		vmcs_read32(CPU_BASED_VM_EXEC_CONTROL) | CPU_BASED_MONITOR_TRAP_FLAG);
+//**********
+
+
+still not sure what sstep_enable does ..
+
+how does qemu/kvm convert the different structs they use
+
+kvm uses kvm_vcpu
+qemu uses CPUState or maybe x86cpustate .... it gets fed into the ioctl and then what?
+
+kvm_guest_debug_workarounds..... reinject trap? ... suppose to right?
+
+
+kvm_main
+
+	static long kvm_vcpu_ioctl(struct file *filp,
+				   unsigned int ioctl, unsigned long arg)
+		vcpu_put called at the end of this
+		every function from here just modifies vcpu ... how does it get transferred?
+		through the ioctl right?
+		i guess this is where you look through qemu
+		why doesn't the trap work? how to explain?
+
+
+one slightly annoying thing is that qemu uses expanded tabs and kvm in the kernel uses hard tabs
+
+is the kvm debugfs useful to us?
+... kvm_stat .. a python script .. somewhere .. grep -R for it later
+	can do things like count vm_exits and w.e.
+
+kvm kernel module:
+mostly focuses on
+x86.c:
+
+vmx.c:
+	vmx_handle_exit
+	kvm_vmx_exit_handlers
+	handle_exception
+	CASE DB_VECTOR:
+	sets dr6 and dr7 .. depending on singlestep? and hw_bp - hardware bypass
+
+
+... since the end goal is the live migration from qemu to kvm and back
+... could we use the debug registers for tainting then? how complex can the conditions be for this?
+
+find out how hardware debugging support can be used (debug registers)
+	you can look to gdb code as an example
+	this is already in kvm after all
+can you have instrumented code be added after triggering a breakpoint?
+seems like there's a bunch of dynamic binary analysis tools built on qemu
+learn more about qemu and it's program structure
+	QOM (qemu object model)
+	threading ... qemu_kvm_thread_fn
+	run_on_cpu
+	helper functions
+		important macros
+	these all seem like some fundamental things ...
+	read the HACKING note too i guess
+compile the kernel faster for modifying the kvm kernel module ...
+	read debian/rules
+	ccache not improving speed ... seems to slow it down
+singlestepping is not working for some reason on this ... waiting for user input
+.. it doesn't work ... do i need to call foreach cpu?
+
+cscope:
+    you can do both, it's an if else statement .. just have the else correspond to one..
+	could just leave the cscope database in the root folder ...
+	and just start vim from it ...
+	already familiar enough to just type out the paths anyway
+	/home/jacob/cscope/cscope.out
+	http://cscope.sourceforge.net/cscope_vim_tutorial.html
+	http://cscope.sourceforge.net/large_projects.html
+	note: i edited the bashrc ... change the variable switching kvm/qemu
+
+gdb:
+	http://wiki.osdev.org/Kernel_Debugging#Use_GDB_with_QEMU
+	https://stackoverflow.com/questions/2420813/using-gdb-to-single-step-assembly-code-outside-specified-executable-causes-error
+**************************************************
+Instead of gdb, run gdbtui. Or run gdb with the -tui switch. Or press C-x C-a after entering  gdb. Now you're in GDB's TUI mode.
+
+Enter layout asm to make the upper window display assembly -- this will automatically follow your instruction pointer, although you can also change frames or scroll around while debugging. Press C-x s to enter SingleKey mode, where run continue up down finish etc. are abbreviated to a single key, allowing you to walk through your program very quickly.
+***************************************************
+
+mark edited areas with //jxu023
+
+investigate:
+	cpus.c:
+		run_on_cpu
+			allocates a function to run on a cpu with data
+		qemu_kvm_cpu_thread_fn
+			look into the cpu_can_run(cpu) next .... in the while loop
+			kvm-all.c: kvm_cpu_exec
+				target/i386/kvm.c: kvm_arch_handle_exit
+					kvm_handle_debug( X86CPU *cpu, kvm_debug_exit_arch * archinfo)
+						archinfo has pc
+						modification to error_printf here
+						returns EXCP_DEBUG
+			if (r == EXCP_DEBUG)
+				cpu_handle_guest_debug(cpu)
+					gdb_set_stop_cpu(cpu) // maybe comment this out if not using gdb
+					vl.c: qemu_system_debug_request()
+						debug_requested=1
+						util/main-loop.c: qemu_notify_event()
+			variable debug_requested used by
+			main_loop(void)
+				while (!main_loop_should_exit(void))
+					if (qemu_debug_requested()) { // sets debug_requested to 0
+						vm_stop(RUN_STATE_DEBUG);
+					}
+			we can repurpose EXCP_DEBUG to not stop the vm perhaps ...
+			if we don't want to use gdb
+// what does the notify thing do
+static int qemu_debug_requested(void)
+{
+    int r = debug_requested;
+    debug_requested = 0;
+    return r;
+}
+						
+	cpu.h:
+		declares cpu_single_step
+		has functions related to single cpu
+
+		anything that declares cpu.h can have cpu_single_step called
+		... what is a good place then
+cscope:
+	it may be useful to use here in addition to ctags
+	ctags only allows you to jump to definitions and not usages
+	ofc, could just stick with using grep -R
+
+task1:
+	learn more qemu/kvm internals
+	debug the rip printing
+		... where does debug-excp get handled in qemu?
+		.. ify ou set the ret=EXCP_DEBUG then it segfaults or freezes ..
+		it probably expects gdbstub.c to handle it somehwere
+
+	try MTF to qemu rip printing ... create own exit reason and struct ....
+
+	look at decaf code?
+	where is the mose code? ask heng
+
+	how much overhead does this gdb stuff add?
+	is it usable without running gdb stuff?
+	insert cpu_single_step someplace
+	handle exits due to guest_debug
+		look into kvm-all.c for this .. exit_reason ..
+		kvm-all.c: kvm_cpu_exec -> kvm.c: kvm_arch_handle_exit: case KVM_EXIT_DEBUG:
+		calls kvm_handle_debug
+		write the rip to a log file here?
+		it seemsl ike in kvm it automatically reads the rip .. where is that stored?
+	find where kvm stores the rip as it handles debug and retrieve it from qemu side
+	in kvm_handle_debug
+		vcpu->arch.singlestep_rip = kvm_rip_read(vcpu) + get_segment_base(vcpu, VCPU_SREG_CS);
+		... so how can i access singlestep_rip from qemu?
+		could see how gdb gets this info when using the stepi command
+		it displays it inside layout asm of gdbtui ... look there too
+	
+	struct kvm_debug_exit_arch {
+		__u32 exception;
+		__u32 pad;
+		__u64 pc;
+		__u64 dr6;
+		__u64 dr7;
+	};
+	// according to the kvm documentation, this is the correct struct to go through
+	looks like this is the place, pc is prog counter ... is rip copied to it? can i check?
+		... look around in the kvm code. ... star this when verified
+	this struct is within kvm_run
+		struct {
+			struct kvm_debug_exit_arch arch;
+		} debug;
+		struct CPUState { ...
+			...
+			struct kvm_run *kvm_run;
+			...
+		}
+
+	qemu/target/i386/kvm.c:
+static int kvm_handle_debug(X86CPU *cpu,
+                            struct kvm_debug_exit_arch *arch_info)
+
+typedef struct CPUX86State {
+    /* standard registers */
+    target_ulong regs[CPU_NB_REGS];
+    target_ulong eip;
+	...
+}
+	there appears to be two things i can try printing: pc and eip
+	... also need to print in hex to compare with gdb
+	cs->kvm_run.debug.arch.pc
+
+	it feels like it might not be correct since if ret == 0 as opposed to the debug thing
+	then it called cpu_synchronize_state
+	... or maybe this just means that they think the state is already correct if the expection
+	was due to debug
+	... or maybe this is what it means that the structs are not used at all if execption is debug
+	-__-
+
+	the synchronize function eventually calls 
+
+
+int kvm_arch_get_registers(CPUState *cs)
+	using the run_on_cpu thing
+
+	maybe i can verify the result by comparing with gdb ... but will the addresses be the same?
+
+cpus.c:
+	qemu_kvm_cpu_thread_fn
+		what is EXCP_DEBUG?
+	one worry point is possibly that the gdb style singlestepping doesn't have the performance we would like sinsce single stepping in gdb is expected to be done manually ... at fastest it is 
+current task:
+	we could avoid looking into gdb stuff
+	find a place to call cpu_single_step with approp args
+	it doesn't seem settable from hmp, only gdb by default
+	we can avoid using gdb ... 
+	log the RIPs ... also it seems like in kvm it prints out
+	RIP + segment number ... i guess this is needed?
+
+	so gdb does what you want to do .. try to follow what gdb does
+		gdbstub.c
+	what are tcg helper functions?
+
+	investigate the singlestep support already within qemu and kvm
+	qemu makes an ioctl call
+		passes struct kvm_set_guest_debug_data
+			contains struct kvm_guest_debug
+				defined in kvm.h of linux-headers/linux/kvm.h
+				contains control and pad ints
+				and struct kvm_guest_debug_arch
+				... this is defined in the arch/x86/include/uapi/asm/kvm.h
+					contains __u64 debugreg[8];
+					these are DR0 to DR7 used for controlling breakpoints and setting
+					debug conditions
+			and int err
+	so then to set singlestepping .. qemu appropriately populates the kvm_guest_debug
+	struct and then sends it through ioctl to kvm_arch_ioctl_set_guest_debug
+
+	and then has a handler for the traps due to the singlestepping
+
+	now i would look into the kvm ioctl's implementation of singlestepping ...
+	that would show me how it works
+	... what i need is to be able to use it ... that would entail just running qemu with singlestepping enabled from monitor.c?
+
+	goodversion is currently unmodified
+other tasks:
+	find the function that distributes ioctl calls to handlers
+exec.c:
+	cpu_single_step(CPUState *cpu, int enabled) *************************************
+		calls kvm_update_guest_debug(cpu,0);
+translate.c:
+	typdef struct DisasContext (disassembly context) ... is this used in kvm?
+		int singlestep_enabled
+kvm-all.c:
+	kvm_invoke_set_guest_debug
+		line 2307
+		makes an ioctl with KVM_SET_GUEST_DEBUG
+	kvm_cpu_exec
+qemu/target/i386/kvm.c
+	kvm_arch_handle_exit
+		KVM_EXIT_DEBUG
+x86.c:
+	kvm_arch_vcpu_ioctl_set_guest_debug
+	kvm_vcpu_check_singlestep
+	vcpu_enter_guest
+vmx.c:
+	update_exception_bitmap
+
+
+path appended -- edit this message before quitting?
+ccache is next ... then actually doing it..
+// i added the symbolic links
+run this for ccache PATH=~/usr/lib/ccache:$PATH
+
+
+https://askubuntu.com/questions/11249/correct-way-to-apply-patches-to-your-kernel
+cd /usr/src/linux-headers-2.6.35.22/
+http://ftp.debian.org/debian/doc/source-unpack.txt
+
+tar -xvzf linux-hwe_4.10.0.orig.tar.gz 
+mv linux-4.10 linux-hwe-4.10.0.orig
+patch -i linux-hwe_4.10.0-27.30-16.04.2.diff -p0
+
+https://launchpad.net/ubuntu/+source/linux-hwe/4.10.0-27.30~16.04.2
+https://superuser.com/questions/413643/how-to-install-a-dsc-file-on-linux
+// ******   dpkg-source -x *.dsc ********
+
+
+https://help.ubuntu.com/community/Kernel/Compile#Rebuilding_.27.27linux-restricted-modules.27.27
+To trigger a rebuild, remove the appropriate stamp file from debian/stamps (e.g. stamp-build-server for the server flavour, etc.).
+
+... use ccache for recompilation
+http://manpages.ubuntu.com/manpages/zesty/en/man1/ccache.1.html
+https://ccache.samba.org/download.html
+and distcc ??
+
+*** https://wiki.ubuntu.com/KernelTeam/KernelMaintenance
+
+https://help.ubuntu.com/community/Kernel/Compile#Speeding_Up_the_Build
+... or look through debian/build debian/tests-build stuff
+http://kernel-handbook.alioth.debian.org/ch-common-tasks.html#s-common-building
+https://wiki.ubuntu.com/KernelCustomBuild
+https://wiki.ubuntu.com/KernelTeam/BuildSystem/ABI
+
+win1: kvm_main.c x86.c vmx.c
+win2: kvm_host.h x2 + kvm_types.h + kvm.h x 2
+	linux includee uapi? asm?
+	kvm_irqfd
+win3: kvm-all.c
+	kvm_cpu_exec
+
+
+changes on lines:
+vmx.c :
+	11657
+	8522
+current:
+tasks:
+	kvm_set_guest_debug
+	the ioctl is in x86.c ... qemu has the target/monitor thing ... uh kvm-all.c has it though ... search singlestep .. does already? just follow it and add a print to log somewhere
+	for the rip
+	o_o
+
+	transfer to userspace ... exit_handle
+	vmx.c: 
+
+	exit_reason returns 1 ... does it go to userspace then?
+	you can modify qemu to test this ... 
+	what is the instruction for compiling qemu though? need to look it up again
+
+	it looks like vmx->exit_reason stores exit_reason
+	should also store the rip right?
+	vmx is converted to and from kvm_vcpu...
+	check the struct for rip and exit_reason
+
+the default exit is kvm_arch_handle_exit
+qemu/target/i386/kvm.c
+i386 also implements the x86_64 parts ... can see in the #define if x86_64 codes
+KVM_EXIT_DEBUG ... that a thing? .. yes
+there's a singlestep option already o__O
+monitor.c : hmp_singlestep
+kvm.h : struct kvm_debug_guest .... 
+maybe?
+	could use KVM_EXIT_INTERNAL_ERROR .. and store rip in __u64 data[16]; data[0] or data[1];
+	check how that gets handled in qemu
+	... no that is too much data also it comms outside qemu
+	check out EXIT_TPR_ACCESS for an example of storing the rip when transferring info to qemu
+
+
+	handle_exit
+	kvm.h contains KVM_EXIT stuff
+	just look in vmx-handle exit
+	change to return 0 in the monitor trap handler and remove the printk from the thing
+	vcpu->run->internal.data[0] = vectoring_info;
+	vcpu->run->internal.data[1] = exit_reason;
+
+	there's no exit_reason in kvm_vcpu
+	it does contain kvm_vcpu_arch though
+	// rip and regs access must go through kvm_{register,rip}_{read,write} functions
+	// that is in kvm_cache_regs ... so my thing was correct
+	// is that the right way to access it through the userspace though?
+	// ... just change the handler to return 0 instead?
+	// if <= 0 then it braeks from the execution loop i think
+
+	look at these for examples
+	how do they communicate?
+	ret == 0 means it keeps running
+	if (exit_reason < kvm_vmx_max_exit_handlers
+	    && kvm_vmx_exit_handlers[exit_reason])
+
+	handle these things in qemu afterwards
+	kvm-all.c
+	int kvm_cpu_exec(CPUState *cpu)
+
+
+	kernelspace edits, make it have to access qemu, transfer the RIP
+
+	print hexadecimal?
+
+check out struct io passed for exit_reason KVM_EXIT_IO
+https://www.cse.iitb.ac.in/synerg/lib/exe/fetch.php?media=public:students:shashank:kvm_shashank_kernelgiri.pdf
+"per cpu in memory vmcs structure"
+in the flow chart from kvm_init
+
+3 kinds of ioctls
+	system
+	vm
+		vm can have multiple vcpus
+	vcpu
+
+what kind of ioctl is the one that is called by singlestep?
+... read the godamn documentation..
+next run will singlestep ...
+... so call it before calling kvm_run ioctl
+
+
+https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-3c-part-3-manual.pdf
+
+vmx.h
+	PROCBASED ... defines MTF
+vmx.c
+	vmx_x86_ops
+	vmx_init
+		calls kvm_init
+	vmcs_set_bits
+kvm_main.c
+	kvm_init
+		calls kvm_arch_init
+x86.c
+	kvm_arch_init
+	kvm_register_write
+	kvm_set_rflags
+	kvm_arch_vcpu_ioctl_set_regs
+	contains all the ioctl calls
+	vcpu_run
+	kvm_arch_vcpu_ioctl_run
+kvm_host.h
+	struct kvm_vcpu_arch
+	struct kvm_arch
+	struct kvm_x86_ops // same as vmx_x86_ops
+	struct kvm
+	struct kvm_vcpu
+	struct kvm_run
+
+x86.h
+	kvm_register_readl
+	kvm_register_writel
+emulate.c
+
+this is a machine specific register .. (MSR)
+PROCBASED_CTLS
+
+vmx.c has structs:
+	vcpu_vmx
+		loaded_vmcs
+			vmcs
+
+
+seems like the Monintor Trap Flag (MTF) is the place to be
+apparently it is in the VMCS
+
+
+x86.c:
+	kvm_on_user_return
+	kvm_set_shared_msr // msr is machine specific register
+	has a bunch of kvm_arch_vcpu_ioctl functions ... communicating uapi like dat?
+	// set traps on instructions? where?
+// modify kvm_entry? .. what is kvm_entry kvm_exit? what are these events to trace?
+// how are these events counted? look at the pmu stuff?
+vmx.c
+static struct kvm_vcpu *vmx_create_vcpu(struct kvm *kvm, unsigned int id)
+
+task: go through each file, make a note of what they do and whether you can use it
+in the context of your plan ...
+
+
+kvm - /dev/kvm
+kvm-y			+= x86.o mmu.o emulate.o i8259.o irq.o lapic.o \
+			   i8254.o ioapic.o irq_comm.o cpuid.o pmu.o mtrr.o \
+			   hyperv.o page_track.o debugfs.o
+
+kvm-intel - i'm not sure...
+	kvm-intel-y		+= vmx.o pmu_intel.o
+
+
+top level
+	kvm_main -> x86
+			 -> irqfd init stuff
+	where is vmx_init called from?
+
+***or maybe call kvm_set_rflags in x86.c ..
+plan: call vmx_set_rflags from vmx.c, it should interrupt
+ it is accessible through struct kvm_x86_ops .. static struct means?
+maybe then find the place where it interrupts, and make sure to call vmx_set_rflags
+again every time
+
+look at the kvm_irqfd_init stuff for the interrupts place perhaps
+
+set the struct kvm_debugregs in arch/x86/include/uapi/asm/kvm.h, it has __64 flags.. how to set it?
+or set kvm_regs .. rflags is the place u want
+
+goals: read more into the debian/rules mmakefile to see if you can make recompiling faster
+
+tasks: perhaps use awk to create a testing environment for this stuff ...
+make shorthand commands ya kno?
+a simpler shell just for you project
+
+configure:
+for qemu:
+	https://wiki.qemu.org/Hosts/Linux#Simple_build_and_test_with_KVM
+	# Switch to the QEMU root directory
+	cd qemu
+	# Configure QEMU for x86_64 only - faster build
+	./configure --target-list=x86_64-softmmu --enable-debug
+	# Build in parallel - my system has 4 CPUs
+	make -j4
+
+commands:
+./configure --target-list=x86_64-softmmu --enable-debug
+ps -a
+kill -9 qemu_pid
+
+migration commands
+./qemu-system-x86_64 -drive format=raw,file=/home/jacob/Downloads/odin1440.img,if=floppy -incoming tcp:0:4444
+./qemu-system-x86_64 -incoming tcp:0:4444 -enable-kvm
+migrate -d tcp:0:4444
+
+kvm
+$ cd arch/x86/kvm
+$ make -C /lib/modules/`uname -r`/build M=$PWD
+
+qemu
+make -j4
+	./qemu-system-x86_64 -drive format=raw,file=/home/jacob/Downloads/odin1440.img,if=floppy -enable-kvm
+
+
+decaf:
+qemu convert  image for decaf
+qemu-img convert -f raw -O qcow2 odin1440.img odin_cow.qcow
+:/qemu-system-i386 -monitor stdio -m 512 -netdev user,id=mynet -device rtl8139,netdev=mynet "/home/jacob/Downloads/odin_cow.qcow"
+
+kernel module compilation
+https://askubuntu.com/questions/515407/how-recipe-to-build-only-one-kernel-module
+make CONFIG_KVM=m CONFIG_INTEL_KVM=m -C /lib/modules/$(uname -r)/build M=/home/jacob/goodversion/linux-4.10/arch/x86/kvm
+
+**********************************************************************
+https://www.kernel.org/doc/Documentation/kbuild/modules.txt
+https://debian-administration.org/article/640/Rebuilding_a_single_kernel_module
+./cry
+.... the files were copied into the linux-headers thing ...
+i'm not sure if that made it work ...
+in any case this works now and doesn't use so many GBs..
+To build against the running kernel use:
+
+		$ cd arch/x86/kvm
+		$ make -C /lib/modules/`uname -r`/build M=$PWD
+**********************************************************************
+
+linuxdeveloper.blogspot.com/2012/05/using-ccache-to-speed-up-kernel.html
+watch -n1 -d ccache -s 5
+https://stackoverflow.com/questions/32497040/the-difference-between-singlestep-and-singlestep-enabled-variables-in-qemu
+	-singlestep is not what you want .. only puts 1 instruction per TB without actually trapping
+	need singlestep_enabled instead .. per cpu thing ..
+	./qemu-system-x86_64 -fda ~/Downloads/odin1440.img -enable-kvm -s -S
+	./qemu-system-x86_64 -drive format=raw,file=/home/jacob/Downloads/odin1440.img,if=floppy -enable-kvm -s -S
+	make -j4 ... then
+	./qemu-system-x86_64 -drive format=raw,file=/home/jacob/Downloads/odin1440.img,if=floppy -enable-kvm
+	remove -s -S after modifying ...
+	(gdb) target remote localhost:1234 
+
+	// exec'ing sudo in a script, execute as sudo script
+	sudo insmod /home/jacob/linux-hwe...../kvm-intel.ko or kvm.ko or both
+	sudo rmmod 
+
+next:
+	use a printk inside kvm_arch_init or kvm_init and see where it ends up
+	line 5999 in arch/x86/kvm/x86.c
+
+	compile using debian/rules
+	... use a timer ... may be worth it to find a faster way to compile after changing
+	just 1 line
+
+
+arch/x86/include/uapi/asm/processor-flags.h
+#define X86_EFLAGS_TF_BIT	8 /* Trap Flag */
+#define X86_EFLAGS_TF		_BITUL(X86_EFLAGS_TF_BIT)
+note: FLAGS has two kinds, EFLAGS is 32 bit, RFLAGS is 64 bit
+
+virt/kvm/kvm_main.c
+	kvm_init(..)
+		kvm_arch_init(opaque) // /arch/x86/kvm/x86.c
+	kvm_exit(..)
+
+anything asm/file.h means that file.h is diff depending on arch i think
+i think asm/kvm.h has something to do with architecture specific
+include/uapi/linux/kvm.h // uapi for userspace api of kvm (/dev/kvm)
+so there's also a guest?
+arch/x86/kvm/
+	vmx.c
+	x86.h
+		uses kvm_host.h // which 1?
