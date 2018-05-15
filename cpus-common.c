@@ -321,6 +321,7 @@ void process_queued_cpu_work(CPUState *cpu)
 
     qemu_mutex_lock(&cpu->work_mutex);
     while (cpu->queued_work_first != NULL) {
+        g_print("queued work first is NOOOOOT null\n"); //zx012
         wi = cpu->queued_work_first;
         cpu->queued_work_first = wi->next;
         if (!cpu->queued_work_first) {

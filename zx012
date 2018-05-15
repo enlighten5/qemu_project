@@ -66,6 +66,8 @@ what i want to do is remove apic when kvm receive it.
 q:how to know how does kvm initial
 
 
+maybe because in tcg mode we only initial one vcpu.
+
 log: cont->stuck in tcg cont->kvm mode
 (qemu) cont
 vm_start started 

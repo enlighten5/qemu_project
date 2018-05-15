@@ -1756,25 +1756,6 @@ resumeKVM:
     goto cleanupKVMTCG;
 
 resumeTCG:
-    /*
-    if (initial) {
-        initial = 0;
-    }
-    else {
-        goto resumeTCG2;
-    }
-    error_printf("initial tcg kickoff\n");
-    while (first_cpu->stopped) {
-        qemu_cond_wait(first_cpu->halt_cond, &qemu_global_mutex);
-
-        CPU_FOREACH(cpu) {
-            current_cpu = cpu;
-            qemu_wait_io_event_common(cpu);
-        }
-    }
-    */
-    goto resumeTCG2;
-resumeTCG2:
     // try flushing the cache here
     //sigdelset(&set, SIG_IPI);
     error_printf("resuming tcg\n");
@@ -2224,7 +2205,7 @@ void qemu_init_vcpu(CPUState *cpu)
         kvm_allowed = 1;
     }
     if (kvm_enabled() && tcg_enabled()) {
-        error_printf("kvm + tcg mode\n");
+        error_printf("---------------------kvm + tcg mode\n");
         tcg_allowed = 0; kvm_allowed=1;
         qemu_kvmtcg_init_vcpu(cpu);
         tcg_allowed = 0; kvm_allowed=1;
@@ -2317,7 +2298,7 @@ void vm_start(void)
         kvm_allowed = 1; //jxu023
         first = 0;
     }
-    error_printf("vm_start started \n"); //jxu023
+    error_printf("vm_start started with tcg_allowed = %d, kvm_allowed = %d\n", tcg_allowed, kvm_allowed); //zx012
     if (!vm_prepare_start()) {
         resume_all_vcpus();
     }
