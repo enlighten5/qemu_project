@@ -54,9 +54,12 @@ look into cpus.c qemu_init_vcpu()
 qemu_kvmtcg_init
 qemu_tcg_init_vcpu
 
-
+CPUstate struct in include/qom/cpu.h
+kvm_run in linux-headers/linux/kvm.h
 
 modified:
+smi flag in machine.c
+
 hw/i386/pc.c func:pc_machine_initfn pcms->apic_build_enable = true. 
 comment pcmc->has_apic_build = false
 what i want to do is remove apic when kvm receive it.
