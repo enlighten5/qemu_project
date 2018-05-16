@@ -2253,8 +2253,8 @@ static void pc_machine_initfn(Object *obj)
     pcms->sata = true;
     pcms->pit = true;
     //pcms->pit = false; //jxu023
-    //pcms->acpi_build_enabled = false; //jxu023
-    pcms->acpi_build_enabled = true; //zx012
+    pcms->acpi_build_enabled = false; //jxu023
+    //pcms->acpi_build_enabled = true; //zx012
     PC_MACHINE_GET_CLASS(pcms)->save_tsc_khz = false; // jxu023
 }
 

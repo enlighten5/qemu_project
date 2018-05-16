@@ -307,8 +307,8 @@ static int cpu_post_load(void *opaque, int version_id)
     else {
         env->tr.flags |= DESC_R_MASK; //jxu023
         env->segs[R_CS].flags |= DESC_A_MASK; //jxu023
-        //cs->interrupt_request &= ~CPU_INTERRUPT_SMI; //0x0040 jxu023 why is this necessary now?
-        cs->interrupt_request |= CPU_INTERRUPT_SMI; //0x0040 jxu023 why is this necessary now?
+        cs->interrupt_request &= ~CPU_INTERRUPT_SMI; //0x0040 jxu023 why is this necessary now?
+        //cs->interrupt_request |= CPU_INTERRUPT_SMI; //zx012?
         //cpu_interrupt(cs, CPU_INTERRUPT_SMI);
         env->interrupt_injected = -1; //jxu023
         env->exception_injected = -1; //jxu023
