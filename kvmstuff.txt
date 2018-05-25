@@ -37,7 +37,7 @@ browsing code
 testing image for qemu and kvm
     https://people.debian.org/~aurel32/qemu/i386/
 
-./configure --target-list=x86_64-softmmu --enable-debug
+./configure --target-list=x86_64-softmmu --enable-debug --enable-debug-info
 make -j4
 
 MOSE live migration based on-the-fly software emulation

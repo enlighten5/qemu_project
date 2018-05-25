@@ -34,7 +34,8 @@
 #endif
 
 #ifdef CONFIG_PPOLL
-#include <poll.h>
+#include <poll.h>//zx012
+//#include <poll2.h>
 #endif
 
 #ifdef CONFIG_PRCTL_PR_SET_TIMERSLACK
@@ -331,7 +332,7 @@ int qemu_poll_ns(GPollFD *fds, guint nfds, int64_t timeout)
         }
         ts.tv_sec = tvsec;
         ts.tv_nsec = timeout % 1000000000LL;
-        return ppoll((struct pollfd *)fds, nfds, &ts, NULL);
+        return ppoll((struct pollfd *)fds, nfds, &ts, NULL);//go into here and stuck
     }
 #else
     return g_poll(fds, nfds, qemu_timeout_ns_to_ms(timeout));

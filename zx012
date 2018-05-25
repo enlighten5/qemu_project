@@ -30,6 +30,101 @@ XMM02=00000000000000000000000000000000 XMM03=00000000000000000000000000000000
 XMM04=00020000000000000001000000000000 XMM05=01010101010101010101010101010101
 XMM06=00ff001d0039005e00ff001e003a005f XMM07=00000000000000000001000100010001
 Aborted (core dumped)
+debug:
+gdb ./x86_64-softmmu/qemu-system-x86_64
+set args -m 1024 -enable-kvm -hda /home/zhenxiao/Downloads/debian_squeeze_i386_desktop.qcow2 -machine kernel_irqchip=off -monitor stdio
+handle SIGUSR1 SIGUSR2 noprint nostop
+debug note:
+in normal tcg, tr.flag get called for many times, we can track who called that func and compare that with the abnormal execution.
+set two break point one in kvmtcg thread another in resumetcg
+set break point in tr.flag printf
+-----------------------------------------------------------------------------------
+(gdb) bt
+#0  get_ss_esp_from_tss (retaddr=0, dpl=0, esp_ptr=<synthetic pointer>, ss_ptr=<synthetic pointer>, 
+    env=0x555556bb0810) at /home/zhenxiao/qemu_switch/target/i386/seg_helper.c:160
+#1  do_interrupt_protected (env=env@entry=0x555556bb0810, intno=intno@entry=239, 
+    is_int=is_int@entry=0, error_code=error_code@entry=0, next_eip=next_eip@entry=0, 
+    is_hw=is_hw@entry=1) at /home/zhenxiao/qemu_switch/target/i386/seg_helper.c:710
+#2  0x00005555558be4db in do_interrupt_all (cpu=cpu@entry=0x555556ba8570, intno=intno@entry=239, 
+    is_int=is_int@entry=0, error_code=error_code@entry=0, next_eip=next_eip@entry=0, 
+    is_hw=is_hw@entry=1) at /home/zhenxiao/qemu_switch/target/i386/seg_helper.c:1262
+#3  0x00005555558c03d3 in do_interrupt_x86_hardirq (env=env@entry=0x555556bb0810, 
+    intno=intno@entry=239, is_hw=is_hw@entry=1)
+    at /home/zhenxiao/qemu_switch/target/i386/seg_helper.c:1320
+#4  0x00005555558c0583 in x86_cpu_exec_interrupt (cs=0x555556ba8570, interrupt_request=<optimized out>)
+    at /home/zhenxiao/qemu_switch/target/i386/seg_helper.c:1371
+#5  0x0000555555813a61 in cpu_handle_interrupt (last_tb=<synthetic pointer>, cpu=0x555556ba8570)
+    at /home/zhenxiao/qemu_switch/accel/tcg/cpu-exec.c:607
+#6  cpu_exec (cpu=<optimized out>) at /home/zhenxiao/qemu_switch/accel/tcg/cpu-exec.c:748
+#7  0x00005555557e3020 in tcg_cpu_exec (cpu=0x555556ba8570) at /home/zhenxiao/qemu_switch/cpus.c:1351
+#8  0x00005555557e3216 in qemu_kvmtcg_cpu_thread_fn (arg=<optimized out>)
+    at /home/zhenxiao/qemu_switch/cpus.c:1792
+#9  0x00007ffff4f9c6ba in start_thread (arg=0x7fffcbfff700) at pthread_create.c:333
+#10 0x00007ffff4cd241d in clone () at ../sysdeps/unix/sysv/linux/x86_64/clone.S:109
+------------------------------------------------------------------------------------
+stuck at first time in tcg
+-------------------------
+(gdb) bt
+#0  0x00007ffff4cc6811 in __GI_ppoll (fds=0x555557646890, nfds=10, timeout=<optimized out>, 
+    timeout@entry=0x7fffffffdb80, sigmask=sigmask@entry=0x0) at ../sysdeps/unix/sysv/linux/ppoll.c:50
+#1  0x0000555555b3587b in ppoll (__ss=0x0, __timeout=0x7fffffffdb80, __nfds=<optimized out>, 
+    __fds=<optimized out>) at /usr/include/x86_64-linux-gnu/bits/poll2.h:77
+#2  qemu_poll_ns (fds=<optimized out>, nfds=<optimized out>, timeout=<optimized out>)
+    at util/qemu-timer.c:334
+#3  0x0000555555b3649a in os_host_main_loop_wait (timeout=timeout@entry=29901813)
+    at util/main-loop.c:256
+#4  0x0000555555b36568 in main_loop_wait (nonblocking=<optimized out>) at util/main-loop.c:516
+#5  0x00005555558e2aa0 in main_loop () at vl.c:1933
+#6  0x00005555558e6450 in main (argc=<optimized out>, argv=<optimized out>, envp=<optimized out>)
+    at vl.c:4779
+
+-------------------------
+debug result
+cpu_handle_interrupt return false, normaly it should go into the last if condition
+
+debug info 24 May:
+(gdb) bt
+#0  0x00007ffff4cc6811 in __GI_ppoll (fds=0x555556b28a70, nfds=7, timeout=<optimized out>, 
+    timeout@entry=0x7fffffffdb80, sigmask=sigmask@entry=0x0) at ../sysdeps/unix/sysv/linux/ppoll.c:50
+#1  0x0000555555b3587b in ppoll (__ss=0x0, __timeout=0x7fffffffdb80, __nfds=<optimized out>, 
+    __fds=<optimized out>) at /usr/include/x86_64-linux-gnu/bits/poll2.h:77
+#2  qemu_poll_ns (fds=<optimized out>, nfds=<optimized out>, timeout=<optimized out>)
+    at util/qemu-timer.c:335
+#3  0x0000555555b3649a in os_host_main_loop_wait (timeout=timeout@entry=29905664)
+    at util/main-loop.c:256
+#4  0x0000555555b36568 in main_loop_wait (nonblocking=<optimized out>) at util/main-loop.c:516
+#5  0x00005555558e2aa0 in main_loop () at vl.c:1933
+#6  0x00005555558e6450 in main (argc=<optimized out>, argv=<optimized out>, envp=<optimized out>)
+    at vl.c:4779
+-------------------------------------------------
+set break at main loop see in normal mode 
+
+this is how tr.flag get called:
+(gdb) bt
+#0  do_interrupt_protected (env=env@entry=0x555556bb2f80, intno=intno@entry=239, 
+    is_int=is_int@entry=0, error_code=error_code@entry=0, next_eip=next_eip@entry=0, 
+    is_hw=is_hw@entry=1) at /home/zhenxiao/qemu_switch/target/i386/seg_helper.c:611
+#1  do_interrupt_all (cpu=cpu@entry=0x555556baace0, intno=intno@entry=239, 
+    is_int=is_int@entry=0, error_code=error_code@entry=0, next_eip=next_eip@entry=0, 
+    is_hw=is_hw@entry=1) at /home/zhenxiao/qemu_switch/target/i386/seg_helper.c:1262
+#2  do_interrupt_x86_hardirq (env=env@entry=0x555556bb2f80, 
+    intno=intno@entry=239, is_hw=is_hw@entry=1)
+    at /home/zhenxiao/qemu_switch/target/i386/seg_helper.c:1320
+#3  x86_cpu_exec_interrupt (cs=0x555556baace0, interrupt_request=<optimized out>)
+    at /home/zhenxiao/qemu_switch/target/i386/seg_helper.c:1371
+#4  cpu_handle_interrupt (last_tb=<synthetic pointer>, cpu=0x555556baace0)
+    at /home/zhenxiao/qemu_switch/accel/tcg/cpu-exec.c:607
+#5  cpu_exec (cpu=<optimized out>) at /home/zhenxiao/qemu_switch/accel/tcg/cpu-exec.c:748
+#6  tcg_cpu_exec (cpu=0x555556baace0) at /home/zhenxiao/qemu_switch/cpus.c:1351
+#7  qemu_kvmtcg_cpu_thread_fn (arg=<optimized out>)
+    at /home/zhenxiao/qemu_switch/cpus.c:1792
+#8  start_thread (arg=0x7fffcbfff700) at pthread_create.c:333
+#9  clone () at ../sysdeps/unix/sysv/linux/x86_64/clone.S:109
+-------------------------------------------------------
+so in stuck tcg is does not go tcg_cpu_exec, it stuck before that.
+so in seg_helper.c line 677 set the dpl and cpl, and the program did not go into line 708
+I need to check what is dpl and cpl in normal situation
+so the conclusion is in cpu-exec() func in accel/tcg/cpu-exec.c, 
 
 run:
 make -j4 && sudo ./x86_64-softmmu/qemu-system-x86_64 -hda /media/zhenxiao/Downloads/ubuntu16.04.qcow2 -m 512M -enable-kvm -monitor stdio -machine kernel_irqchip=off
@@ -67,6 +162,13 @@ q:how to know how does kvm initial
 
 
 maybe because in tcg mode we only initial one vcpu.
+
+cpu_abort(CPU(cpu), "print_mesg") can print the reg info. cpu shoude be the cpustate
+X86CPU *cpu = x86_env_get_cpu(env);
+qemu start:
+if iso file:
+qemu-img create -f qcow2 img_name.qcow2 10G
+qemu-system-x86_64 -m 2048 -hda img_name.qcow2 -cdrom ./*.iso -enable-kvm
 
 log: cont->stuck in tcg cont->kvm mode
 (qemu) cont
@@ -112,4 +214,63 @@ resuming kvm
 cpu_post_load called
 kvm_cpu_exec running
 queued work first is null
-kvm_cpu_exec running 
+kvm_cpu_exec running
+
+reg info when stuck:
+(qemu) info registers
+EAX=3dbae8e6 EBX=ca6c0000 ECX=00000016 EDX=0007e57c
+ESI=80000000 EDI=000ee6b2 EBP=c1390760 ESP=c1359e20
+EIP=c104b0f4 EFL=00000082 [--S----] CPL=0 II=0 A20=1 SMM=0 HLT=0
+ES =007b 00000000 ffffffff 00cff300 DPL=3 DS   [-WA]
+CS =0060 00000000 ffffffff 00cf9b00 DPL=0 CS32 [-RA]
+SS =0068 00000000 ffffffff 00c09300 DPL=0 DS   [-WA]
+DS =007b 00000000 ffffffff 00cff300 DPL=3 DS   [-WA]
+FS =00d8 00bed000 ffffffff 008f9300 DPL=0 DS16 [-WA]
+GS =00e0 c2008000 00000018 00409100 DPL=0 DS   [--A]
+LDT=0000 00000000 000fffff 00000000
+TR =0080 c2005e40 0000206b 00008b00 DPL=0 TSS32-busy
+GDT=     c2000000 000000ff
+IDT=     c135b000 000007ff
+CR0=8005003b CR2=b685c000 CR3=301fa000 CR4=000006d0
+DR0=0000000000000000 DR1=0000000000000000 DR2=0000000000000000 DR3=0000000000000000 
+DR6=00000000fffe0ff0 DR7=0000000000000400
+EFER=0000000000000000
+FCW=037f FSW=0000 [ST=0] FTW=ff MXCSR=00001f80
+FPR0=0000000000000000 0000 FPR1=0000000000000000 0000
+FPR2=0000000000000000 0000 FPR3=0000000000000000 0000
+FPR4=0000000000000000 0000 FPR5=0000000000000000 0000
+FPR6=e000000000000000 4001 FPR7=eccccd0800000000 4003
+XMM00=ff00ff00000000000000000000000000 XMM01=00000000000000000000000000000000
+XMM02=00000000000000000000000000000000 XMM03=00000000000000000000000000000000
+XMM04=00000000000000000000000000000000 XMM05=00000000000000000000000000000000
+XMM06=00000000000000000000000000000000 XMM07=00000000000000000000000000000000
+
+normal state:
+(qemu) info registers
+EAX=00000286 EBX=ef97d8b8 ECX=0000b2b2 EDX=c20086c4
+ESI=ef97d800 EDI=ef97d800 EBP=ef97d8bc ESP=f6c3ff48
+EIP=c1194c1a EFL=00000086 [--S--P-] CPL=0 II=0 A20=1 SMM=0 HLT=0
+ES =007b 00000000 ffffffff 00cff300 DPL=3 DS   [-WA]
+CS =0060 00000000 ffffffff 00cf9b00 DPL=0 CS32 [-RA]
+SS =0068 00000000 ffffffff 00cf9300 DPL=0 DS   [-WA]
+DS =007b 00000000 ffffffff 00cff300 DPL=3 DS   [-WA]
+FS =00d8 00bed000 ffffffff 008f9300 DPL=0 DS16 [-WA]
+GS =00e0 c2008000 00000018 00409100 DPL=0 DS   [--A]
+LDT=0000 00000000 000fffff 00000000
+TR =0080 c2005e40 0000206b 00008900 DPL=0 TSS32-avl
+GDT=     c2000000 000000ff
+IDT=     c135b000 000007ff
+CR0=8005003b CR2=b6801000 CR3=36ff8000 CR4=000006d0
+DR0=0000000000000000 DR1=0000000000000000 DR2=0000000000000000 DR3=0000000000000000 
+DR6=00000000fffe0ff0 DR7=0000000000000400
+EFER=0000000000000000
+FCW=037f FSW=4220 [ST=0] FTW=00 MXCSR=00001f80
+FPR0=f314000000000000 3ffc FPR1=b600000000000000 3ffd
+FPR2=a600000000000000 bffd FPR3=b800000000000000 bffc
+FPR4=95e00e2762d8174a 3ff5 FPR5=8000000000000000 3fff
+FPR6=0000000000000000 0000 FPR7=0000000000000000 0000
+XMM00=ffffff00ffffffff0000000000ff0000 XMM01=0000001f0000001f0000001f0000001f
+XMM02=00000000000000000000000000000000 XMM03=00000000000000000000000000000000
+XMM04=00000000000000000000000000000000 XMM05=00000000000000000000000000000000
+XMM06=00000000000000000000000000000000 XMM07=00000000000000000000000000000000
+ 

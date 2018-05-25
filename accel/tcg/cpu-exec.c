@@ -604,7 +604,7 @@ static inline bool cpu_handle_interrupt(CPUState *cpu,
            True when it is, and we should restart on a new TB,
            and via longjmp via cpu_loop_exit.  */
         else {
-            if (cc->cpu_exec_interrupt(cpu, interrupt_request)) {
+            if (cc->cpu_exec_interrupt(cpu, interrupt_request)) {//do interrupt handler zx012
                 replay_interrupt();
                 *last_tb = NULL;
             }
@@ -624,7 +624,7 @@ static inline bool cpu_handle_interrupt(CPUState *cpu,
     }
 
     /* Finally, check if we need to exit to the main loop.  */
-    if (unlikely(atomic_read(&cpu->exit_request)
+    if (unlikely(atomic_read(&cpu->exit_request)//go into seg_helper once and go here zx012
         || (use_icount && cpu->icount_decr.u16.low + cpu->icount_extra == 0))) {
         atomic_set(&cpu->exit_request, 0);
         cpu->exception_index = EXCP_INTERRUPT;

@@ -1852,7 +1852,7 @@ static void kvm_eat_signals(CPUState *cpu)
 
 int kvm_cpu_exec(CPUState *cpu)
 {
-    error_printf("kvm_cpu_exec running\n"); //jxu023
+    //error_printf("kvm_cpu_exec running\n"); //jxu023
     struct kvm_run *run = cpu->kvm_run;
     int ret, run_ret;
 
@@ -2373,7 +2373,7 @@ static void kvm_ipi_signal(int sig)
 {
     if (current_cpu) {
         assert(kvm_immediate_exit);
-        g_print("kvm ipi\n");//jxu023
+        //g_print("kvm ipi\n");//jxu023
         kvm_cpu_kick(current_cpu);
     }
 }

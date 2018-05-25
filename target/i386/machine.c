@@ -247,6 +247,7 @@ static int cpu_post_load(void *opaque, int version_id)
                      "migrated TSC frequency");
         return -EINVAL;
     }
+    g_print("env->tsc_khz!!!!!!!\n");//zx012
 
     if (env->fpregs_format_vmstate) {
         error_report("Unsupported old non-softfloat CPU state");
@@ -302,6 +303,7 @@ static int cpu_post_load(void *opaque, int version_id)
         cs->interrupt_request &= ~CPU_INTERRUPT_SMI; // jxu023 why is this necessary now?
         env->interrupt_injected = 0; //jxu023
         env->exception_injected = 0; //jxu023
+        g_print("tcg_enable in cpu_post_load_fn\n");//zx012
     }
     //jxu023 -- kvm
     else {

@@ -1189,7 +1189,7 @@ static void *qemu_kvm_cpu_thread_fn(void *arg)
     cpu->can_do_io = 1;
     current_cpu = cpu;
 
-    r = kvm_init_vcpu(cpu);
+    r = kvm_init_vcpu(cpu);//set cpu->created = true//zx012
     if (r < 0) {
         error_report("kvm_init_vcpu failed: %s", strerror(-r));
         exit(1);
@@ -1348,12 +1348,13 @@ static int tcg_cpu_exec(CPUState *cpu)
 #endif
     qemu_mutex_unlock_iothread();
     cpu_exec_start(cpu);
-    ret = cpu_exec(cpu);
+    ret = cpu_exec(cpu);//zx012 ret = 0x10000 when stuck in tcg
     cpu_exec_end(cpu);
     qemu_mutex_lock_iothread();
 #ifdef CONFIG_PROFILER
     tcg_time += profile_getclock() - ti;
 #endif
+    //g_print("after tcg_cpu_exec !!!!\n"); //zx012
     return ret;
 }
 
@@ -1655,7 +1656,8 @@ static void *qemu_tcg_cpu_thread_fn(void *arg)//zx012
     /* process any pending work */
     cpu->exit_request = 1;
 
-    while (1) {
+    //while (1) {//qemu offical update
+    do {
         if (cpu_can_run(cpu)) {
             int r;
             r = tcg_cpu_exec(cpu);
@@ -1785,7 +1787,7 @@ resumeTCG:
     // not quite sure how multithreaded tcg works
     // but we're just assuming one core for now
     do {
-        if (cpu_can_run(cpu) && !kvm_enabled()) {
+            if (cpu_can_run(cpu) && !kvm_enabled()) {
             int r;
             r = tcg_cpu_exec(cpu);
             switch (r) {
@@ -1818,17 +1820,19 @@ resumeTCG:
                     break;
             }
         }
-        else if (!kvm_enabled()) {
+        else if (kvm_enabled()) {//zx012 modify !kvm_enable
             atomic_mb_set(&cpu->exit_request, 0);
             qemu_wait_io_event(cpu);
             goto resumeKVM;
         }
 
+        g_print("still in the loop!!!!\n");//zx012
         atomic_mb_set(&cpu->exit_request, 0);
         g_print("calling wait_io\n"); //jxu023
         qemu_wait_io_event(cpu);
-    } while (!cpu->unplug || cpu_can_run(cpu));
-
+        g_print("after wait io!!!!\n");//zx012
+    } while (!cpu->unplug || cpu_can_run(cpu));//zx012 &&
+    g_print("out side the loop!!!!");//zx012
     qemu_tcg_destroy_vcpu(cpu); // does nothing
 
 cleanupKVMTCG:
@@ -1871,10 +1875,10 @@ static void qemu_cpu_kick_thread(CPUState *cpu)
 void qemu_cpu_kick(CPUState *cpu)
 {
 
-    error_printf("cond_broadcast in cpu_kick\n"); //jxu023
+    //error_printf("cond_broadcast in cpu_kick\n"); //jxu023
     qemu_cond_broadcast(cpu->halt_cond);
     if (tcg_enabled()) {
-        error_printf("tcg_enabled kicking\n"); //jxu023
+      //  error_printf("tcg_enabled kicking\n"); //jxu023
         cpu_exit(cpu);
         /* NOP unless doing single-thread RR */
         // qemu_cpu_kick_rr_cpu(); //jxu023 comment
@@ -1886,7 +1890,7 @@ void qemu_cpu_kick(CPUState *cpu)
              */
             cpu->exit_request = 1;
         }
-        error_printf("kvm cpu kicking\n"); //jxu023
+        //error_printf("kvm cpu kicking\n"); //jxu023
         qemu_cpu_kick_thread(cpu);
     }
 }
