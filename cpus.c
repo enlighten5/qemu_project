@@ -1807,6 +1807,7 @@ resumeTCG2:
         if (cpu_can_run(cpu) && !kvm_enabled()) {
             int r;
             r = tcg_cpu_exec(cpu);
+            g_print("tcg_cpu_exec");
             switch (r) {
                 case EXCP_DEBUG:
                     g_print("it is debug\n");
@@ -1844,7 +1845,7 @@ resumeTCG2:
         }
 
         atomic_mb_set(&cpu->exit_request, 0);
-        g_print("calling wait_io\n"); //jxu023
+        //g_print("calling wait_io\n"); //jxu023
         qemu_wait_io_event(cpu);
     } while (!cpu->unplug || cpu_can_run(cpu));
 
@@ -1890,10 +1891,10 @@ static void qemu_cpu_kick_thread(CPUState *cpu)
 void qemu_cpu_kick(CPUState *cpu)
 {
 
-    error_printf("cond_broadcast in cpu_kick\n"); //jxu023
+    //error_printf("cond_broadcast in cpu_kick\n"); //jxu023
     qemu_cond_broadcast(cpu->halt_cond);
     if (tcg_enabled()) {
-        error_printf("tcg_enabled kicking\n"); //jxu023
+        //error_printf("tcg_enabled kicking\n"); //jxu023
         cpu_exit(cpu);
         /* NOP unless doing single-thread RR */
         // qemu_cpu_kick_rr_cpu(); //jxu023 comment

@@ -766,7 +766,7 @@ int cpu_exec(CPUState *cpu)
             tb = tb_find(cpu, last_tb, tb_exit, cflags);
             //g_print("loopexec\n"); //jxu023
             cpu_loop_exec_tb(cpu, tb, &last_tb, &tb_exit);
-            //g_print("loopexec done\n"); //jxu023
+            //g_print("loopexec done"); //jxu023
             /* Try to align the host and virtual clocks
                if the guest is in advance */
             align_clocks(&sc, cpu);

@@ -315,7 +315,7 @@ void process_queued_cpu_work(CPUState *cpu)
     struct qemu_work_item *wi;
 
     if (cpu->queued_work_first == NULL) {
-        g_print("queued work first is null\n"); //jxu023
+        //g_print("queued work first is null\n"); //jxu023
         return;
     }
 
