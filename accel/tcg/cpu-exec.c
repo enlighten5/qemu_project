@@ -169,11 +169,11 @@ static inline tcg_target_ulong cpu_tb_exec(CPUState *cpu, TranslationBlock *itb)
 
     cpu->can_do_io = !use_icount;
     ret = tcg_qemu_tb_exec(env, tb_ptr);
+    g_print("after tcg_qemu_tb_exec");//zx012 stuck here
     cpu->can_do_io = 1;
     last_tb = (TranslationBlock *)(ret & ~TB_EXIT_MASK);
     tb_exit = ret & TB_EXIT_MASK;
     trace_exec_tb_exit(last_tb, tb_exit);
-
     if (tb_exit > TB_EXIT_IDX1) {
         /* We didn't start executing this TB (eg because the instruction
          * counter hit zero); we must restore the guest PC to the address
@@ -387,13 +387,13 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
     uint32_t flags;
     bool acquired_tb_lock = false;
 
-    if (printfstuff)
+   // if (printfstuff)
     g_print("lookup_cpu\n"); //jxu023
     tb = tb_lookup__cpu_state(cpu, &pc, &cs_base, &flags, cf_mask);
-    if (printfstuff)
+   // if (printfstuff)
     g_print("pc is %lu\n", pc); //jxu023
     if (tb == NULL) {
-    if (printfstuff)
+   // if (printfstuff)
         g_print("tb is null \n"); //jxu023
         /* mmap_lock is needed by tb_gen_code, and mmap_lock must be
          * taken outside tb_lock. As system emulation is currently
@@ -402,21 +402,21 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
         mmap_lock();
         tb_lock();
         acquired_tb_lock = true;
-    if (printfstuff)
+   // if (printfstuff)
         g_print("aquired tb_lock \n"); //jxu023
 
         /* There's a chance that our desired tb has been translated while
          * taking the locks so we check again inside the lock.
          */
         tb = tb_htable_lookup(cpu, pc, cs_base, flags, cf_mask);
-    if (printfstuff)
+   // if (printfstuff)
         g_print("tb_htable_lookup \n"); //jxu023
         if (likely(tb == NULL)) {
             /* if no translated code available, then translate it now */
-    if (printfstuff)
+   // if (printfstuff)
             g_print("tb null\n"); //jxu023
             tb = tb_gen_code(cpu, pc, cs_base, flags, cf_mask);
-    if (printfstuff)
+   // if (printfstuff)
             g_print("tb_gen_code \n"); //jxu023
         }
 
@@ -446,6 +446,7 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
     if (acquired_tb_lock) {
         tb_unlock();
     }
+    g_print("tb_find is about to return \n"); //zx012
     return tb;
 }
 
@@ -642,9 +643,12 @@ static inline void cpu_loop_exec_tb(CPUState *cpu, TranslationBlock *tb,
 
     trace_exec_tb(tb, tb->pc);
     ret = cpu_tb_exec(cpu, tb);
+    g_print("after cpu_tb_exec  ");//zx012 stuck here
     tb = (TranslationBlock *)(ret & ~TB_EXIT_MASK);
     *tb_exit = ret & TB_EXIT_MASK;
+    //g_print("cpu_loop_exec_tb  ");//zx012
     if (*tb_exit != TB_EXIT_REQUESTED) {
+       // g_print("cpu_loop_exec_tb error return   ");//zx012
         *last_tb = tb;
         return;
     }
@@ -765,8 +769,8 @@ int cpu_exec(CPUState *cpu)
             g_print("tb_find\n"); //jxu023
             tb = tb_find(cpu, last_tb, tb_exit, cflags);
             //g_print("loopexec\n"); //jxu023
-            cpu_loop_exec_tb(cpu, tb, &last_tb, &tb_exit);
-            //g_print("loopexec done\n"); //jxu023
+            cpu_loop_exec_tb(cpu, tb, &last_tb, &tb_exit);//stuck here zx012
+            g_print("loopexec done\n"); //jxu023
             /* Try to align the host and virtual clocks
                if the guest is in advance */
             align_clocks(&sc, cpu);

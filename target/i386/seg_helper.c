@@ -139,7 +139,7 @@ static inline void get_ss_esp_from_tss(CPUX86State *env, uint32_t *ss_ptr,
 {
     X86CPU *cpu = x86_env_get_cpu(env);
     int type, index, shift;
-    g_print("am i executed after second switch????");
+    //g_print("am i executed after second switch????");
 #if 0
     {
         int i;
@@ -157,7 +157,7 @@ static inline void get_ss_esp_from_tss(CPUX86State *env, uint32_t *ss_ptr,
     if (!(env->tr.flags & DESC_P_MASK)) {
         cpu_abort(CPU(cpu), "invalid tss");
     }
-    g_print("the very first tr.flags should be %x\n" ,env->tr.flags);//zx012
+    //g_print("the very first tr.flags should be %x\n" ,env->tr.flags);//zx012
     if(true){
       env->tr.flags = (1 << 7);
       env->tr.flags |= (1 << 3);
@@ -707,7 +707,7 @@ static void do_interrupt_protected(CPUX86State *env, int intno, int is_int,
     }
     if (dpl < cpl) {//it does not go into this
         /* to inner privilege */
-        g_print("------------do_interrupt_protected\n");//zx012
+        //g_print("------------do_interrupt_protected\n");//zx012
         get_ss_esp_from_tss(env, &ss, &esp, dpl, 0);
         if ((ss & 0xfffc) == 0) {
             raise_exception_err(env, EXCP0A_TSS, ss & 0xfffc);
@@ -1865,7 +1865,7 @@ void helper_lcall_protected(CPUX86State *env, int new_cs, target_ulong new_eip,
 
         if (!(e2 & DESC_C_MASK) && dpl < cpl) {
             /* to inner privilege */
-            g_print("helper_lcall_protected");//zx012 seems like this fun is not called
+            //g_print("helper_lcall_protected");//zx012 seems like this fun is not called
             get_ss_esp_from_tss(env, &ss, &sp, dpl, GETPC());
             LOG_PCALL("new ss:esp=%04x:%08x param_count=%d env->regs[R_ESP]="
                       TARGET_FMT_lx "\n", ss, sp, param_count,

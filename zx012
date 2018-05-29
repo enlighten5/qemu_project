@@ -126,6 +126,15 @@ so in seg_helper.c line 677 set the dpl and cpl, and the program did not go into
 I need to check what is dpl and cpl in normal situation
 so the conclusion is in cpu-exec() func in accel/tcg/cpu-exec.c, 
 
+debug May 25
+it's stuck in tb_find() in func cpu_exec() in accle/tcg/cpu-exec.c line 766 
+set break at line 750 and 768, somehow if continue after 750, it doesnt reach 768. so i guess it still in line 766 tb_find(). after a long time 
+
+debug May 26:
+right now it stuck in tcg for looking for tb, after a few moment, it starts to run again and can perform several times switches. however, after that, tcg_cpu_exec return halt signal. 
+debug info May 27:
+program stuck in tcg_qemu_tb_exec in accel/tcg/cpu-exec.c line 171
+
 run:
 make -j4 && sudo ./x86_64-softmmu/qemu-system-x86_64 -hda /media/zhenxiao/Downloads/ubuntu16.04.qcow2 -m 512M -enable-kvm -monitor stdio -machine kernel_irqchip=off
 

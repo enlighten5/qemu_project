@@ -1354,7 +1354,7 @@ static int tcg_cpu_exec(CPUState *cpu)
 #ifdef CONFIG_PROFILER
     tcg_time += profile_getclock() - ti;
 #endif
-    //g_print("after tcg_cpu_exec !!!!\n"); //zx012
+    g_print("after tcg_cpu_exec !!!!\n"); //zx012
     return ret;
 }
 
@@ -1732,7 +1732,7 @@ static void *qemu_kvmtcg_cpu_thread_fn(void * arg)
 resumeKVM:
     error_printf("resuming kvm\n");
     if (cc->vmsd) {
-        cc->vmsd->post_load(cpu, cc->vmsd->version_id);
+        cc->vmsd->post_load(cpu, cc->vmsd->version_id);//call cpu_post_load zx012
     }
     else {
         error_printf("vmsd ptr is null\n");
@@ -1760,6 +1760,7 @@ resumeKVM:
 resumeTCG:
     // try flushing the cache here
     //sigdelset(&set, SIG_IPI);
+    tb_flush(cpu);//zx012
     error_printf("resuming tcg\n");
     tcg_allowed=0;
     kvm_allowed=1;
@@ -1773,6 +1774,7 @@ resumeTCG:
     //cpu->halted=0;
     //cpu->interrupt_request &= ~CPU_INTERRUPT_HALT;
     if (cc->vmsd) {
+        error_printf("tcg call cpu_post_load");//zx012
         cc->vmsd->post_load(cpu, cc->vmsd->version_id);
     }
     else {
@@ -1826,11 +1828,11 @@ resumeTCG:
             goto resumeKVM;
         }
 
-        g_print("still in the loop!!!!\n");//zx012
+       // g_print("still in the loop!!!!\n");//zx012
         atomic_mb_set(&cpu->exit_request, 0);
-        g_print("calling wait_io\n"); //jxu023
+        //g_print("calling wait_io\n"); //jxu023
         qemu_wait_io_event(cpu);
-        g_print("after wait io!!!!\n");//zx012
+       // g_print("after wait io!!!!\n");//zx012
     } while (!cpu->unplug || cpu_can_run(cpu));//zx012 &&
     g_print("out side the loop!!!!");//zx012
     qemu_tcg_destroy_vcpu(cpu); // does nothing

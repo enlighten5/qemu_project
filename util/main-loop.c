@@ -253,7 +253,7 @@ static int os_host_main_loop_wait(int64_t timeout)
         spin_counter++;
     }
 
-    ret = qemu_poll_ns((GPollFD *)gpollfds->data, gpollfds->len, timeout);//go into here and stuck
+    ret = qemu_poll_ns((GPollFD *)gpollfds->data, gpollfds->len, timeout);
 
     if (timeout) {
         qemu_mutex_lock_iothread();
